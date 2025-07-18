@@ -11,18 +11,23 @@ from parser_iporter import parse_iporter
 
 def detect_csv_type(content_bytes):
     ENCODINGS = ["utf-8-sig", "utf-8", "cp932", "shift_jis"]
+    debug_log = []
     for enc in ENCODINGS:
         try:
             file_str = content_bytes.decode(enc)
             sio = io.StringIO(file_str)
             first_line = sio.readline().strip().split(",")
+            debug_log.append(f"[{enc}] first_line={first_line}")
             if len(first_line) > 0 and first_line[0] == "H":
-                return 'infomart', enc
+                debug_log.append(f"判定: infomart ({enc})")
+                return 'infomart', enc, debug_log
             elif len(first_line) > 0 and first_line[0] == "伝票番号":
-                return 'iporter', enc
-        except Exception:
-            continue
-    return 'unknown', None
+                debug_log.append(f"判定: iporter ({enc})")
+                return 'iporter', enc, debug_log
+        except Exception as e:
+            debug_log.append(f"[{enc}] error: {e}")
+    debug_log.append("判定: unknown")
+    return 'unknown', None, debug_log
 
 # --- 認証 ---
 with open("credentials.json", "r", encoding="utf-8") as f:
@@ -54,11 +59,13 @@ if st.session_state.get("authentication_status"):
     )
 
     records = []
+    debug_details = []
     if uploaded_files:
         for file in uploaded_files:
-            content = file.read()  # バイナリで中身全部取得
+            content = file.read()
             filename = file.name
-            filetype, detected_enc = detect_csv_type(content)
+            filetype, detected_enc, debug_log = detect_csv_type(content)
+            debug_details.append(f"【{filename}】\n" + "\n".join(debug_log))
             if filetype == 'infomart':
                 file_like = io.BytesIO(content)
                 records += parse_infomart(file_like, filename)
@@ -67,13 +74,11 @@ if st.session_state.get("authentication_status"):
                 records += parse_iporter(file_like, filename)
             else:
                 st.warning(f"{filename} は未対応のフォーマットです")
-        
-    try:
-        with open("standardized_data.json", "r", encoding="utf-8") as f:
-            json_orders = json.load(f)
-    except FileNotFoundError:
-        pass
+    # --- デバッグ情報表示 ---
+    if debug_details:
+        st.info("=== デバッグログ ===\n" + "\n\n".join(debug_details))
 
+    # --- 以下、集計・エクセル出力などは前回のまま（略） ---
     if records:
         df = pd.DataFrame(records)
         df = df.dropna(how='all')
