@@ -9,6 +9,22 @@ from config_loader import load_config
 from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
 
+def detect_excel_type(file):
+    # エクセルファイルをDataFrameで先頭2行だけ読む
+    df = pd.read_excel(file, header=None, nrows=2)
+    # 1行目と2行目のリスト取得
+    row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
+    row2 = [str(cell).strip() for cell in df.iloc[1].tolist()]
+
+    # インフォマート判定（2行目が［データ区分］で始まる）
+    if len(row2) > 0 and row2[0] in ['[データ区分]', '［データ区分］']:
+        return 'infomart'
+    # IPORTER判定（1行目が伝票番号で始まる）
+    elif len(row1) > 0 and row1[0] == '伝票番号':
+        return 'iporter'
+    else:
+        return 'unknown'
+
 # --- 認証 ---
 with open("credentials.json", "r", encoding="utf-8") as f:
     credentials_config = json.load(f)
@@ -128,20 +144,4 @@ elif st.session_state.get("authentication_status") is False:
     st.error("ユーザー名またはパスワードが正しくありません。")
 elif st.session_state.get("authentication_status") is None:
     st.warning("ログイン情報を入力してください。")
-
-def detect_excel_type(file):
-    # エクセルファイルをDataFrameで先頭2行だけ読む
-    df = pd.read_excel(file, header=None, nrows=2)
-    # 1行目と2行目のリスト取得
-    row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
-    row2 = [str(cell).strip() for cell in df.iloc[1].tolist()]
-
-    # インフォマート判定（2行目が［データ区分］で始まる）
-    if len(row2) > 0 and row2[0] in ['[データ区分]', '［データ区分］']:
-        return 'infomart'
-    # IPORTER判定（1行目が伝票番号で始まる）
-    elif len(row1) > 0 and row1[0] == '伝票番号':
-        return 'iporter'
-    else:
-        return 'unknown'
     
