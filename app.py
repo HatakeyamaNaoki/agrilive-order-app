@@ -11,25 +11,19 @@ from parser_iporter import parse_iporter
 
 def detect_csv_type(content_bytes):
     ENCODINGS = ["utf-8-sig", "cp932", "shift_jis"]
-    debug_msg = []
     for enc in ENCODINGS:
         try:
             file_str = content_bytes.decode(enc)
-            df = pd.read_csv(io.StringIO(file_str), header=None, nrows=2)
-            row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
-            debug_msg.append(f"encoding={enc}, row1={row1}")
-            if len(row1) > 0 and row1[0].strip().replace('\ufeff','') == 'H':
-                st.info(f"判定: infomart ({enc})")
-                st.code(debug_msg)
+            sio = io.StringIO(file_str)
+            first_line = sio.readline().strip()
+            second_line = sio.readline().strip()
+            # 1行目がH、2行目に"伝票日付"などが含まれていればインフォマート
+            if first_line == 'H' and ("伝票日付" in second_line or "伝票No" in second_line):
                 return 'infomart', enc
-            elif len(row1) > 0 and row1[0] == '伝票番号':
-                st.info(f"判定: iporter ({enc})")
-                st.code(debug_msg)
+            elif first_line.startswith('伝票番号') or "伝票番号" in first_line:
                 return 'iporter', enc
-        except Exception as e:
-            debug_msg.append(f"encoding={enc}, error={e}")
+        except Exception:
             continue
-    st.warning(f"unknown: {debug_msg}")
     return 'unknown', None
 
 # --- 認証 ---
