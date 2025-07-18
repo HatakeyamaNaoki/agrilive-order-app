@@ -10,19 +10,23 @@ from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
 
 def detect_csv_type(file):
-    # エクセルファイルをDataFrameで先頭2行だけ読む
-    df = pd.read_csv(file, header=None, nrows=2)
-    # 1行目と2行目のリスト取得
-    row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
-    row2 = [str(cell).strip() for cell in df.iloc[1].tolist()]
+    """ファイルの内容から infomart/iporter/unknown を判定"""
+    try:
+        file.seek(0)
+        # バイナリからBytesIOを毎回作ることで複数回readで壊れない
+        content = file.read()
+        file_like = io.StringIO(content.decode('utf-8', errors='ignore'))
+        df = pd.read_csv(file_like, header=None, nrows=2)
+        row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
+        row2 = [str(cell).strip() for cell in df.iloc[1].tolist()] if len(df) > 1 else []
 
-    # インフォマート判定（2行目が［データ区分］で始まる）
-    if len(row2) > 0 and row2[0] in ['[データ区分]', '［データ区分］']:
-        return 'infomart'
-    # IPORTER判定（1行目が伝票番号で始まる）
-    elif len(row1) > 0 and row1[0] == '伝票番号':
-        return 'iporter'
-    else:
+        if len(row2) > 0 and row2[0] in ['[データ区分]', '［データ区分］']:
+            return 'infomart'
+        elif len(row1) > 0 and row1[0] == '伝票番号':
+            return 'iporter'
+        else:
+            return 'unknown'
+    except Exception as e:
         return 'unknown'
 
 # --- 認証 ---
@@ -47,7 +51,6 @@ if st.session_state.get("authentication_status"):
     authenticator.logout('ログアウト', 'sidebar')
     st.success(f"{name} さん、ようこそ！")
 
-    # --- アップロード＆即集計反映 ---
     st.subheader("注文データファイルのアップロード")
     uploaded_files = st.file_uploader(
         label="Infomart / IPORTER の注文データファイルをここにドラッグ＆ドロップまたは選択してください",
@@ -58,14 +61,19 @@ if st.session_state.get("authentication_status"):
     records = []
     if uploaded_files:
         for file in uploaded_files:
-            file.seek(0)  # ←Streamlitで複数回readするときに重要
-            filetype = detect_csv_type(file)
             file.seek(0)
+            content = file.read()
+            # 複製する（判定と本処理で2回使う）
+            file_like1 = io.BytesIO(content)
+            file_like2 = io.BytesIO(content)
             filename = file.name
+
+            filetype = detect_csv_type(file_like1)
+            file_like2.seek(0)
             if filetype == 'infomart':
-                records += parse_infomart(file, filename)
+                records += parse_infomart(file_like2, filename)
             elif filetype == 'iporter':
-                records += parse_iporter(file, filename)
+                records += parse_iporter(file_like2, filename)
             else:
                 st.warning(f"{filename} は未対応のフォーマットです")
         
@@ -77,9 +85,7 @@ if st.session_state.get("authentication_status"):
     except FileNotFoundError:
         pass
 
-    # --- DataFrame化＆空行除去＆カラム順制御 ---
     if records:
-        # 空行除去
         df = pd.DataFrame(records)
         df = df.dropna(how='all')
         columns = [
@@ -89,7 +95,6 @@ if st.session_state.get("authentication_status"):
         df = df.reindex(columns=columns)
         df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
 
-        # --- 編集機能付きテーブル表示 ---
         edited_df = st.data_editor(
             df,
             use_container_width=True,
@@ -98,21 +103,19 @@ if st.session_state.get("authentication_status"):
             hide_index=True
         )
 
-        # 発注日・納品日を"YYYY/MM/DD"に統一
         for col in ["発注日", "納品日"]:
             edited_df[col] = pd.to_datetime(
                 edited_df[col], errors="coerce"
             ).dt.strftime("%Y/%m/%d")
 
-        # 【修正ポイント】数量をfloat型に変換（エラー時は0扱い）
         edited_df["数量"] = pd.to_numeric(edited_df["数量"], errors="coerce").fillna(0)
 
-        # === 2シート目「注文一覧(層別結果)」 ===
+        # 並び替え
         df_sorted = edited_df.sort_values(
             by=["商品名", "納品日", "発注日"], na_position="last"
         )
 
-        # === 3シート目「集計結果」 ===
+        # 集計
         df_agg = (
             df_sorted
             .groupby(["商品名", "備考", "単位"], dropna=False, as_index=False)
@@ -121,7 +124,6 @@ if st.session_state.get("authentication_status"):
         df_agg = df_agg[["商品名", "備考", "数量", "単位"]]
         df_agg = df_agg.sort_values(by=["商品名"])
 
-        # ==== ダウンロード用Excel ====
         output = io.BytesIO()
         jst = pytz.timezone("Asia/Tokyo")
         now_str = datetime.datetime.now(jst).strftime("%y%m%d_%H%M")
@@ -144,4 +146,3 @@ elif st.session_state.get("authentication_status") is False:
     st.error("ユーザー名またはパスワードが正しくありません。")
 elif st.session_state.get("authentication_status") is None:
     st.warning("ログイン情報を入力してください。")
-    
