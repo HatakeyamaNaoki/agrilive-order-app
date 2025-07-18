@@ -18,12 +18,18 @@ def detect_csv_type(content_bytes):
             df = pd.read_csv(io.StringIO(file_str), header=None, nrows=2)
             row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
             debug_msg.append(f"encoding={enc}, row1={row1}")
-            if len(row1) > 0 and row1[0] == 'H':
+            if len(row1) > 0 and row1[0].strip().replace('\ufeff','') == 'H':
+                st.info(f"判定: infomart ({enc})")
+                st.code(debug_msg)
                 return 'infomart', enc
             elif len(row1) > 0 and row1[0] == '伝票番号':
+                st.info(f"判定: iporter ({enc})")
+                st.code(debug_msg)
                 return 'iporter', enc
-        except Exception:
+        except Exception as e:
+            debug_msg.append(f"encoding={enc}, error={e}")
             continue
+    st.warning(f"unknown: {debug_msg}")
     return 'unknown', None
 
 # --- 認証 ---
