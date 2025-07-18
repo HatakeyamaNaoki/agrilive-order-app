@@ -18,10 +18,12 @@ def detect_csv_type(content_bytes):
             sio = io.StringIO(file_str)
             first_line = sio.readline().strip().split(",")
             debug_log.append(f"[{enc}] first_line={first_line}")
-            if len(first_line) > 0 and first_line[0] == "H":
+            # ★クォート除去して比較
+            cell0 = first_line[0].replace('"', '').replace("'", '').strip() if first_line else ""
+            if cell0 == "H":
                 debug_log.append(f"判定: infomart ({enc})")
                 return 'infomart', enc, debug_log
-            elif len(first_line) > 0 and first_line[0] == "伝票番号":
+            elif cell0 == "伝票番号":
                 debug_log.append(f"判定: iporter ({enc})")
                 return 'iporter', enc, debug_log
         except Exception as e:
