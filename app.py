@@ -63,10 +63,10 @@ if st.session_state.get("authentication_status"):
             filetype, detected_enc = detect_csv_type(content)
             if filetype == 'infomart':
                 file_like = io.BytesIO(content)
-                records += parse_infomart(file_like, filename, encoding=detected_enc)
+                records += parse_infomart(file_like, filename)
             elif filetype == 'iporter':
                 file_like = io.BytesIO(content)
-                records += parse_iporter(file_like, filename, encoding=detected_enc)
+                records += parse_iporter(file_like, filename)
             else:
                 st.warning(f"{filename} は未対応のフォーマットです")
         
