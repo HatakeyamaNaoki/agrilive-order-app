@@ -10,20 +10,15 @@ from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
 
 def detect_csv_type(content_bytes):
-    ENCODINGS = ["utf-8-sig", "cp932", "shift_jis"]
+    ENCODINGS = ["utf-8-sig", "utf-8", "cp932", "shift_jis"]
     for enc in ENCODINGS:
         try:
             file_str = content_bytes.decode(enc)
             sio = io.StringIO(file_str)
-            first_line = sio.readline().strip()
-            second_line = sio.readline().strip()
-            # 1行目が「H」で始まり、2行目に「伝票日付」または「伝票No」が含まれる場合（全角カッコ含む）
-            if first_line.startswith('H') and (
-                "伝票日付" in second_line or "伝票No" in second_line or "［伝票日付］" in second_line or "［伝票No］" in second_line
-            ):
+            first_line = sio.readline().strip().split(",")
+            if len(first_line) > 0 and first_line[0] == "H":
                 return 'infomart', enc
-            # IPORTER判定
-            elif "伝票番号" in first_line:
+            elif len(first_line) > 0 and first_line[0] == "伝票番号":
                 return 'iporter', enc
         except Exception:
             continue
