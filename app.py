@@ -10,24 +10,25 @@ from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
 
 def detect_csv_type(file):
-    """ファイルの内容から infomart/iporter/unknown を判定"""
-    try:
-        file.seek(0)
-        # バイナリからBytesIOを毎回作ることで複数回readで壊れない
-        content = file.read()
-        file_like = io.StringIO(content.decode('utf-8', errors='ignore'))
-        df = pd.read_csv(file_like, header=None, nrows=2)
-        row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
-        row2 = [str(cell).strip() for cell in df.iloc[1].tolist()] if len(df) > 1 else []
+    """ファイルの内容から infomart/iporter/unknown を判定（複数エンコーディング対応）"""
+    ENCODINGS = ["utf-8-sig", "cp932", "shift_jis"]
+    content = file.read()
+    for enc in ENCODINGS:
+        try:
+            file_like = io.StringIO(content.decode(enc))
+            df = pd.read_csv(file_like, header=None, nrows=2)
+            row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
+            row2 = [str(cell).strip() for cell in df.iloc[1].tolist()] if len(df) > 1 else []
 
-        if len(row2) > 0 and row2[0] in ['[データ区分]', '［データ区分］']:
-            return 'infomart'
-        elif len(row1) > 0 and row1[0] == '伝票番号':
-            return 'iporter'
-        else:
-            return 'unknown'
-    except Exception as e:
-        return 'unknown'
+            if len(row2) > 0 and row2[0] in ['[データ区分]', '［データ区分］']:
+                return 'infomart'
+            elif len(row1) > 0 and row1[0] == '伝票番号':
+                return 'iporter'
+            else:
+                continue  # 次のエンコーディングを試す
+        except Exception:
+            continue
+    return 'unknown'
 
 # --- 認証 ---
 with open("credentials.json", "r", encoding="utf-8") as f:
