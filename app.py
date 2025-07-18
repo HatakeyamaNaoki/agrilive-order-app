@@ -9,13 +9,11 @@ from config_loader import load_config
 from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
 
-# --- ファイル形式判定（エンコーディング自動対応） ---
-def detect_csv_type(file_like):
+def detect_csv_type(content_bytes):
     ENCODINGS = ["utf-8-sig", "cp932", "shift_jis"]
-    content = file_like.read()
     for enc in ENCODINGS:
         try:
-            file_str = content.decode(enc)
+            file_str = content_bytes.decode(enc)
             df = pd.read_csv(io.StringIO(file_str), header=None, nrows=2)
             row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
             row2 = [str(cell).strip() for cell in df.iloc[1].tolist()] if len(df) > 1 else []
@@ -43,8 +41,8 @@ st.title("受発注データ集計アプリ（アグリライブ）")
 authenticator.login(location='main')
 
 if st.session_state.get("authentication_status"):
-    username = st.session_state["username"] if "username" in st.session_state else ""
-    name = st.session_state["name"] if "name" in st.session_state else ""
+    username = st.session_state.get("username", "")
+    name = st.session_state.get("name", "")
     config = load_config(user_id=username)
     authenticator.logout('ログアウト', 'sidebar')
     st.success(f"{name} さん、ようこそ！")
@@ -59,28 +57,22 @@ if st.session_state.get("authentication_status"):
     records = []
     if uploaded_files:
         for file in uploaded_files:
-            file.seek(0)
-            content = file.read()
-            # 判定＆本処理で使うため、2つ複製
-            file_like1 = io.BytesIO(content)
-            file_like2 = io.BytesIO(content)
+            content = file.read()  # バイナリで中身全部取得
             filename = file.name
 
-            file_like1.seek(0)
-            filetype, detected_enc = detect_csv_type(file_like1)
-            file_like2.seek(0)
+            filetype, detected_enc = detect_csv_type(content)
             if filetype == 'infomart':
-                records += parse_infomart(file_like2, filename, encoding=detected_enc)
+                file_like = io.BytesIO(content)
+                records += parse_infomart(file_like, filename, encoding=detected_enc)
             elif filetype == 'iporter':
-                records += parse_iporter(file_like2, filename, encoding=detected_enc)
+                file_like = io.BytesIO(content)
+                records += parse_iporter(file_like, filename, encoding=detected_enc)
             else:
                 st.warning(f"{filename} は未対応のフォーマットです")
         
-    # --- 既存JSONデータ追加する場合（略） ---
     try:
         with open("standardized_data.json", "r", encoding="utf-8") as f:
             json_orders = json.load(f)
-        # DataFrame化してrecordsに追加する処理も可能
     except FileNotFoundError:
         pass
 
@@ -102,19 +94,15 @@ if st.session_state.get("authentication_status"):
             hide_index=True
         )
 
-        # 日付整形
         for col in ["発注日", "納品日"]:
             edited_df[col] = pd.to_datetime(edited_df[col], errors="coerce").dt.strftime("%Y/%m/%d")
 
-        # 数量はfloat化
         edited_df["数量"] = pd.to_numeric(edited_df["数量"], errors="coerce").fillna(0)
 
-        # ソートシート
         df_sorted = edited_df.sort_values(
             by=["商品名", "納品日", "発注日"], na_position="last"
         )
 
-        # 集計シート
         df_agg = (
             df_sorted
             .groupby(["商品名", "備考", "単位"], dropna=False, as_index=False)
@@ -123,7 +111,6 @@ if st.session_state.get("authentication_status"):
         df_agg = df_agg[["商品名", "備考", "数量", "単位"]]
         df_agg = df_agg.sort_values(by=["商品名"])
 
-        # Excel出力
         output = io.BytesIO()
         jst = pytz.timezone("Asia/Tokyo")
         now_str = datetime.datetime.now(jst).strftime("%y%m%d_%H%M")
