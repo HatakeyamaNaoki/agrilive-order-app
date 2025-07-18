@@ -76,9 +76,6 @@ if st.session_state.get("authentication_status"):
                 records += parse_iporter(file_like, filename)
             else:
                 st.warning(f"{filename} は未対応のフォーマットです")
-    # --- デバッグ情報表示 ---
-    if debug_details:
-        st.info("=== デバッグログ ===\n" + "\n\n".join(debug_details))
 
     # --- 以下、集計・エクセル出力などは前回のまま（略） ---
     if records:
