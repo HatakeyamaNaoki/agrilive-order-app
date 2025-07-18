@@ -42,11 +42,13 @@ if st.session_state.get("authentication_status"):
     records = []
     if uploaded_files:
         for file in uploaded_files:
+            file.seek(0)  # ←Streamlitで複数回readするときに重要
+            filetype = detect_excel_type(file)
+            file.seek(0)
             filename = file.name
-            # ファイル名で判定（または中身判定でもOK）
-            if "インフォマート" in filename or "infomart" in filename.lower():
+            if filetype == 'infomart':
                 records += parse_infomart(file, filename)
-            elif "IPORTER" in filename or "iporter" in filename.lower():
+            elif filetype == 'iporter':
                 records += parse_iporter(file, filename)
             else:
                 st.warning(f"{filename} は未対応のフォーマットです")
@@ -126,3 +128,20 @@ elif st.session_state.get("authentication_status") is False:
     st.error("ユーザー名またはパスワードが正しくありません。")
 elif st.session_state.get("authentication_status") is None:
     st.warning("ログイン情報を入力してください。")
+
+def detect_excel_type(file):
+    # エクセルファイルをDataFrameで先頭2行だけ読む
+    df = pd.read_excel(file, header=None, nrows=2)
+    # 1行目と2行目のリスト取得
+    row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
+    row2 = [str(cell).strip() for cell in df.iloc[1].tolist()]
+
+    # インフォマート判定（2行目が［データ区分］で始まる）
+    if len(row2) > 0 and row2[0] in ['[データ区分]', '［データ区分］']:
+        return 'infomart'
+    # IPORTER判定（1行目が伝票番号で始まる）
+    elif len(row1) > 0 and row1[0] == '伝票番号':
+        return 'iporter'
+    else:
+        return 'unknown'
+    
