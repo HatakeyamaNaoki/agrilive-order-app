@@ -16,8 +16,7 @@ def detect_csv_type(content_bytes):
             file_str = content_bytes.decode(enc)
             df = pd.read_csv(io.StringIO(file_str), header=None, nrows=2)
             row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
-            row2 = [str(cell).strip() for cell in df.iloc[1].tolist()] if len(df) > 1 else []
-            if len(row2) > 0 and row2[0] in ['[データ区分]', '［データ区分］']:
+            if len(row1) > 0 and row1[0] == 'H':
                 return 'infomart', enc
             elif len(row1) > 0 and row1[0] == '伝票番号':
                 return 'iporter', enc
