@@ -9,9 +9,9 @@ from config_loader import load_config
 from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
 
-def detect_excel_type(file):
+def detect_csv_type(file):
     # エクセルファイルをDataFrameで先頭2行だけ読む
-    df = pd.read_excel(file, header=None, nrows=2)
+    df = pd.read_csv(file, header=None, nrows=2)
     # 1行目と2行目のリスト取得
     row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
     row2 = [str(cell).strip() for cell in df.iloc[1].tolist()]
@@ -59,7 +59,7 @@ if st.session_state.get("authentication_status"):
     if uploaded_files:
         for file in uploaded_files:
             file.seek(0)  # ←Streamlitで複数回readするときに重要
-            filetype = detect_excel_type(file)
+            filetype = detect_csv_type(file)
             file.seek(0)
             filename = file.name
             if filetype == 'infomart':
