@@ -9,26 +9,23 @@ from config_loader import load_config
 from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
 
-def detect_csv_type(file):
-    """ファイルの内容から infomart/iporter/unknown を判定（複数エンコーディング対応）"""
+# --- ファイル形式判定（エンコーディング自動対応） ---
+def detect_csv_type(file_like):
     ENCODINGS = ["utf-8-sig", "cp932", "shift_jis"]
-    content = file.read()
+    content = file_like.read()
     for enc in ENCODINGS:
         try:
-            file_like = io.StringIO(content.decode(enc))
-            df = pd.read_csv(file_like, header=None, nrows=2)
+            file_str = content.decode(enc)
+            df = pd.read_csv(io.StringIO(file_str), header=None, nrows=2)
             row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
             row2 = [str(cell).strip() for cell in df.iloc[1].tolist()] if len(df) > 1 else []
-
             if len(row2) > 0 and row2[0] in ['[データ区分]', '［データ区分］']:
-                return 'infomart'
+                return 'infomart', enc
             elif len(row1) > 0 and row1[0] == '伝票番号':
-                return 'iporter'
-            else:
-                continue  # 次のエンコーディングを試す
+                return 'iporter', enc
         except Exception:
             continue
-    return 'unknown'
+    return 'unknown', None
 
 # --- 認証 ---
 with open("credentials.json", "r", encoding="utf-8") as f:
@@ -64,25 +61,26 @@ if st.session_state.get("authentication_status"):
         for file in uploaded_files:
             file.seek(0)
             content = file.read()
-            # 複製する（判定と本処理で2回使う）
+            # 判定＆本処理で使うため、2つ複製
             file_like1 = io.BytesIO(content)
             file_like2 = io.BytesIO(content)
             filename = file.name
 
-            filetype = detect_csv_type(file_like1)
+            file_like1.seek(0)
+            filetype, detected_enc = detect_csv_type(file_like1)
             file_like2.seek(0)
             if filetype == 'infomart':
-                records += parse_infomart(file_like2, filename)
+                records += parse_infomart(file_like2, filename, encoding=detected_enc)
             elif filetype == 'iporter':
-                records += parse_iporter(file_like2, filename)
+                records += parse_iporter(file_like2, filename, encoding=detected_enc)
             else:
                 st.warning(f"{filename} は未対応のフォーマットです")
         
-    # --- JSON既存データも表示したい場合はここで追加 ---
+    # --- 既存JSONデータ追加する場合（略） ---
     try:
         with open("standardized_data.json", "r", encoding="utf-8") as f:
             json_orders = json.load(f)
-        # DataFrame化し、recordsに追加する処理も可能（今回はアップロード優先で割愛）
+        # DataFrame化してrecordsに追加する処理も可能
     except FileNotFoundError:
         pass
 
@@ -104,19 +102,19 @@ if st.session_state.get("authentication_status"):
             hide_index=True
         )
 
+        # 日付整形
         for col in ["発注日", "納品日"]:
-            edited_df[col] = pd.to_datetime(
-                edited_df[col], errors="coerce"
-            ).dt.strftime("%Y/%m/%d")
+            edited_df[col] = pd.to_datetime(edited_df[col], errors="coerce").dt.strftime("%Y/%m/%d")
 
+        # 数量はfloat化
         edited_df["数量"] = pd.to_numeric(edited_df["数量"], errors="coerce").fillna(0)
 
-        # 並び替え
+        # ソートシート
         df_sorted = edited_df.sort_values(
             by=["商品名", "納品日", "発注日"], na_position="last"
         )
 
-        # 集計
+        # 集計シート
         df_agg = (
             df_sorted
             .groupby(["商品名", "備考", "単位"], dropna=False, as_index=False)
@@ -125,6 +123,7 @@ if st.session_state.get("authentication_status"):
         df_agg = df_agg[["商品名", "備考", "数量", "単位"]]
         df_agg = df_agg.sort_values(by=["商品名"])
 
+        # Excel出力
         output = io.BytesIO()
         jst = pytz.timezone("Asia/Tokyo")
         now_str = datetime.datetime.now(jst).strftime("%y%m%d_%H%M")
