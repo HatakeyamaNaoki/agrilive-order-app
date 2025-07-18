@@ -16,6 +16,7 @@ def detect_csv_type(content_bytes):
             file_str = content_bytes.decode(enc)
             df = pd.read_csv(io.StringIO(file_str), header=None, nrows=2)
             row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
+            print(f"【DEBUG】encoding={enc}, row1={row1}")
             if len(row1) > 0 and row1[0] == 'H':
                 return 'infomart', enc
             elif len(row1) > 0 and row1[0] == '伝票番号':
@@ -58,7 +59,6 @@ if st.session_state.get("authentication_status"):
         for file in uploaded_files:
             content = file.read()  # バイナリで中身全部取得
             filename = file.name
-
             filetype, detected_enc = detect_csv_type(content)
             if filetype == 'infomart':
                 file_like = io.BytesIO(content)
