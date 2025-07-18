@@ -11,12 +11,13 @@ from parser_iporter import parse_iporter
 
 def detect_csv_type(content_bytes):
     ENCODINGS = ["utf-8-sig", "cp932", "shift_jis"]
+    debug_msg = []
     for enc in ENCODINGS:
         try:
             file_str = content_bytes.decode(enc)
             df = pd.read_csv(io.StringIO(file_str), header=None, nrows=2)
             row1 = [str(cell).strip() for cell in df.iloc[0].tolist()]
-            print(f"【DEBUG】encoding={enc}, row1={row1}")
+            debug_msg.append(f"encoding={enc}, row1={row1}")
             if len(row1) > 0 and row1[0] == 'H':
                 return 'infomart', enc
             elif len(row1) > 0 and row1[0] == '伝票番号':
