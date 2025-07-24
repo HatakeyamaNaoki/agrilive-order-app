@@ -8,6 +8,7 @@ import pytz
 from config_loader import load_config
 from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
+from parser_mitsubishi import parse_mitsubishi 
 
 def detect_csv_type(content_bytes):
     ENCODINGS = ["utf-8-sig", "utf-8", "cp932", "shift_jis"]
@@ -55,27 +56,39 @@ if st.session_state.get("authentication_status"):
 
     st.subheader("注文データファイルのアップロード")
     uploaded_files = st.file_uploader(
-        label="Infomart / IPORTER の注文データファイルをここにドラッグ＆ドロップまたは選択してください",
+        label="Infomart / IPORTER 等の注文データファイルをここにドラッグ＆ドロップまたは選択してください",
         accept_multiple_files=True,
-        type=['txt', 'csv']
+        type=['txt', 'csv', 'xlsx']
     )
 
     records = []
     debug_details = []
     if uploaded_files:
         for file in uploaded_files:
-            content = file.read()
             filename = file.name
-            filetype, detected_enc, debug_log = detect_csv_type(content)
-            debug_details.append(f"【{filename}】\n" + "\n".join(debug_log))
-            if filetype == 'infomart':
+            content = file.read()
+
+            if filename.lower().endswith((".txt", ".csv")):
+                filetype, detected_enc, debug_log = detect_csv_type(content)
+                debug_details.append(f"【{filename}】\n" + "\n".join(debug_log))
                 file_like = io.BytesIO(content)
-                records += parse_infomart(file_like, filename)
-            elif filetype == 'iporter':
-                file_like = io.BytesIO(content)
-                records += parse_iporter(file_like, filename)
-            else:
-                st.warning(f"{filename} は未対応のフォーマットです")
+                if filetype == 'infomart':
+                    records += parse_infomart(file_like, filename)
+                elif filetype == 'iporter':
+                    records += parse_iporter(file_like, filename)
+                else:
+                    st.warning(f"{filename} は未対応のフォーマットです")
+
+            elif filename.lower().endswith(".xlsx"):
+                try:
+                    df_excel = pd.read_excel(io.BytesIO(content), sheet_name=0, header=None)
+                    if df_excel.shape[0] > 5 and str(df_excel.iloc[4, 1]).strip() == "伝票番号":
+                        file_like = io.BytesIO(content)
+                        records += parse_mitsubishi(file_like, filename)
+                    else:
+                        st.warning(f"{filename} は未対応のExcelフォーマットです")
+                except Exception as e:
+                    st.error(f"{filename} の読み込みに失敗しました: {e}")
 
     # --- 以下、集計・エクセル出力などは前回のまま（略） ---
     if records:
@@ -112,14 +125,34 @@ if st.session_state.get("authentication_status"):
         )
         df_agg = df_agg[["商品名", "備考", "数量", "単位"]]
         df_agg = df_agg.sort_values(by=["商品名"])
-
         output = io.BytesIO()
         jst = pytz.timezone("Asia/Tokyo")
         now_str = datetime.datetime.now(jst).strftime("%y%m%d_%H%M")
+
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            edited_df.to_excel(writer, index=False, sheet_name="注文一覧")
-            df_sorted.to_excel(writer, index=False, sheet_name="注文一覧(層別結果)")
-            df_agg.to_excel(writer, index=False, sheet_name="集計結果")
+            workbook = writer.book
+            header_format = workbook.add_format({'bold': False, 'border': 0})
+
+            # ▼ 注文一覧シート
+            sheet1 = "注文一覧"
+            edited_df.to_excel(writer, index=False, sheet_name=sheet1, startrow=1, header=False)
+            worksheet1 = writer.sheets[sheet1]
+            for col_num, value in enumerate(edited_df.columns.values):
+                worksheet1.write(0, col_num, value, header_format)
+
+            # ▼ 注文一覧(層別結果)シート
+            sheet2 = "注文一覧(層別結果)"
+            df_sorted.to_excel(writer, index=False, sheet_name=sheet2, startrow=1, header=False)
+            worksheet2 = writer.sheets[sheet2]
+            for col_num, value in enumerate(df_sorted.columns.values):
+                worksheet2.write(0, col_num, value, header_format)
+
+            # ▼ 集計結果シート
+            sheet3 = "集計結果"
+            df_agg.to_excel(writer, index=False, sheet_name=sheet3, startrow=1, header=False)
+            worksheet3 = writer.sheets[sheet3]
+            for col_num, value in enumerate(df_agg.columns.values):
+                worksheet3.write(0, col_num, value, header_format)
 
         output.seek(0)
         st.download_button(
