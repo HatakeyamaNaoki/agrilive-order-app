@@ -8,7 +8,16 @@ import pytz
 from config_loader import load_config
 from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
-from parser_mitsubishi import parse_mitsubishi 
+from parser_mitsubishi import parse_mitsubishi
+from docx import Document
+
+def load_docx_html(filepath):
+    doc = Document(filepath)
+    html = ""
+    for para in doc.paragraphs:
+        # 空行も改行として反映
+        html += f"{para.text}<br>"
+    return html
 
 def detect_csv_type(content_bytes):
     ENCODINGS = ["utf-8-sig", "utf-8", "cp932", "shift_jis"]
@@ -19,7 +28,6 @@ def detect_csv_type(content_bytes):
             sio = io.StringIO(file_str)
             first_line = sio.readline().strip().split(",")
             debug_log.append(f"[{enc}] first_line={first_line}")
-            # ★クォート除去して比較
             cell0 = first_line[0].replace('"', '').replace("'", '').strip() if first_line else ""
             if cell0 == "H":
                 debug_log.append(f"判定: infomart ({enc})")
@@ -31,6 +39,22 @@ def detect_csv_type(content_bytes):
             debug_log.append(f"[{enc}] error: {e}")
     debug_log.append("判定: unknown")
     return 'unknown', None, debug_log
+
+def add_user(email, name, company, password):
+    with open("credentials.json", "r", encoding="utf-8") as f:
+        credentials = json.load(f)
+    if email in credentials['credentials']['usernames']:
+        return False, "このメールアドレスは既に登録されています。"
+    hashed_pw = stauth.Hasher.hash(password)
+    credentials['credentials']['usernames'][email] = {
+        "email": email,
+        "name": name,
+        "company": company,
+        "password": hashed_pw
+    }
+    with open("credentials.json", "w", encoding="utf-8") as f:
+        json.dump(credentials, f, ensure_ascii=False, indent=4)
+    return True, "アカウントを追加しました。"
 
 # --- 認証 ---
 with open("credentials.json", "r", encoding="utf-8") as f:
@@ -45,8 +69,61 @@ authenticator = stauth.Authenticate(
 st.set_page_config(page_title="受発注データ集計アプリ（アグリライブ）", layout="wide")
 st.image("会社ロゴ.png", width=220)
 st.title("受発注データ集計アプリ（アグリライブ）")
-authenticator.login(location='main')
 
+# --- サイドバー ---
+if not st.session_state.get("authentication_status"):
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("新規アカウント追加")
+    new_email = st.sidebar.text_input("メールアドレス", key="new_email")
+    new_name = st.sidebar.text_input("お名前", key="new_name")
+    new_company = st.sidebar.text_input("会社名", key="new_company")
+    new_password = st.sidebar.text_input("パスワード", type="password", key="new_pw")
+    view_select = st.sidebar.radio(
+        "ご確認ください",
+        ("表示しない", "利用規約", "プライバシーポリシー"),
+        index=0
+    )
+    agree_terms = st.sidebar.checkbox("利用規約・プライバシーポリシーに同意します", key="agree_terms")
+
+    if st.sidebar.button("追加"):
+        if not agree_terms:
+            st.sidebar.warning("利用規約・プライバシーポリシーに同意が必要です。")
+        elif new_email and new_name and new_company and new_password:
+            ok, msg = add_user(new_email, new_name, new_company, new_password)
+            if ok:
+                st.sidebar.success(msg)
+            else:
+                st.sidebar.error(msg)
+        else:
+            st.sidebar.warning("すべて入力してください。")
+
+# --- ログインフォームを描画（必ずここで表示！） ---
+authenticator.login(
+    location='main',
+    fields={
+        "Form name": "Login",
+        "Username": "Email",
+        "Password": "Password",
+        "Login": "Login"
+    }
+)
+
+# --- ログイン画面の下に規約を表示（ここで順序調整） ---
+if not st.session_state.get("authentication_status"):
+    st.markdown("---")
+    if 'view_select' not in locals():
+        view_select = "表示しない"  # セッション直後の再実行対策
+    if view_select == "利用規約":
+        html = load_docx_html("利用規約.docx")
+        st.markdown("### 利用規約")
+        st.markdown(html, unsafe_allow_html=True)
+    elif view_select == "プライバシーポリシー":
+        html = load_docx_html("プライバシーポリシー.docx")
+        st.markdown("### プライバシーポリシー")
+        st.markdown(html, unsafe_allow_html=True)
+    # 何も選択しなければ何も出さない
+
+# --- ログイン後の画面 ---
 if st.session_state.get("authentication_status"):
     username = st.session_state.get("username", "")
     name = st.session_state.get("name", "")
@@ -90,7 +167,6 @@ if st.session_state.get("authentication_status"):
                 except Exception as e:
                     st.error(f"{filename} の読み込みに失敗しました: {e}")
 
-    # --- 以下、集計・エクセル出力などは前回のまま（略） ---
     if records:
         df = pd.DataFrame(records)
         df = df.dropna(how='all')
