@@ -177,6 +177,19 @@ if st.session_state.get("authentication_status"):
         except Exception as e:
             st.sidebar.error(f"APIキー取得エラー: {e}")
             st.sidebar.info("Render Secrets Filesの設定を確認してください")
+            st.sidebar.markdown("""
+            **Render Secrets Files設定手順:**
+            1. Renderダッシュボードでプロジェクトを開く
+            2. 「Environment」タブを選択
+            3. 「Secrets Files」セクションで以下を設定:
+               - キー: `OPENAI_API_KEY`
+               - 値: あなたのOpenAI APIキー
+            4. 「Save Changes」をクリック
+            5. アプリケーションを再デプロイ
+            
+            **注意:** Secret Filesは環境変数とは異なり、ファイルとして保存されます。
+            アプリケーションのルートディレクトリまたは `/etc/secrets/` からアクセスできます。
+            """)
 
     st.subheader("注文データファイルのアップロード")
     uploaded_files = st.file_uploader(
