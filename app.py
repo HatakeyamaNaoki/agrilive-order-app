@@ -357,33 +357,6 @@ if st.session_state.get("authentication_status"):
         st.error(f"管理者ダッシュボードエラー: {e}")
         # エラーが発生した場合は通常の機能を続行
     
-    # 解析済みファイル管理
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("ファイル管理")
-    
-    if st.sidebar.button("解析済みファイル管理"):
-        st.subheader("📁 解析済みファイル管理")
-        
-        if st.session_state.processed_files:
-            st.write("**解析済みファイル一覧:**")
-            for filename, info in st.session_state.processed_files.items():
-                processed_time = datetime.datetime.fromisoformat(info['processed_at']).strftime('%Y-%m-%d %H:%M:%S')
-                st.write(f"• {filename} (解析時刻: {processed_time})")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("解析済みファイルをクリア"):
-                    st.session_state.processed_files = {}
-                    st.success("解析済みファイル情報をクリアしました。")
-                    st.rerun()
-            
-            with col2:
-                st.info(f"解析済みファイル数: {len(st.session_state.processed_files)}")
-        else:
-            st.info("解析済みファイルはありません。")
-        
-        st.stop()
-
     # デバッグ用: 動的ユーザー情報の確認（開発時のみ表示）
     if not is_production():
         st.sidebar.markdown("---")
@@ -433,11 +406,13 @@ if st.session_state.get("authentication_status"):
         type=['txt', 'csv', 'xlsx', 'pdf']
     )
 
-    # セッション状態で解析済みファイルを管理
+    # セッション状態で解析済みファイルとデータを管理
     if 'processed_files' not in st.session_state:
         st.session_state.processed_files = {}
+    if 'all_records' not in st.session_state:
+        st.session_state.all_records = []
     
-    records = []
+    new_records = []
     debug_details = []
     if uploaded_files:
         for file in uploaded_files:
@@ -451,10 +426,16 @@ if st.session_state.get("authentication_status"):
             if filename in st.session_state.processed_files:
                 stored_hash = st.session_state.processed_files[filename]['hash']
                 if stored_hash == file_hash:
-                    st.info(f"{filename} は既に解析済みです。スキップします。")
+                    st.info(f"📋 {filename} は既に解析済みです。データを保持します。")
+                    # 既存のデータを取得
+                    existing_records = [r for r in st.session_state.all_records if r.get('data_source') == filename]
+                    if existing_records:
+                        new_records.extend(existing_records)
                     continue
                 else:
-                    st.info(f"{filename} の内容が変更されました。再解析します。")
+                    st.info(f"🔄 {filename} の内容が変更されました。再解析します。")
+                    # 古いデータを削除
+                    st.session_state.all_records = [r for r in st.session_state.all_records if r.get('data_source') != filename]
             
             # 解析開始前にファイル情報を記録
             st.session_state.processed_files[filename] = {
@@ -467,9 +448,13 @@ if st.session_state.get("authentication_status"):
                 debug_details.append(f"【{filename}】\n" + "\n".join(debug_log))
                 file_like = io.BytesIO(content)
                 if filetype == 'infomart':
-                    records += parse_infomart(file_like, filename)
+                    file_records = parse_infomart(file_like, filename)
+                    new_records.extend(file_records)
+                    st.session_state.all_records.extend(file_records)
                 elif filetype == 'iporter':
-                    records += parse_iporter(file_like, filename)
+                    file_records = parse_iporter(file_like, filename)
+                    new_records.extend(file_records)
+                    st.session_state.all_records.extend(file_records)
                 else:
                     st.warning(f"{filename} は未対応のフォーマットです")
 
@@ -478,7 +463,9 @@ if st.session_state.get("authentication_status"):
                     df_excel = pd.read_excel(io.BytesIO(content), sheet_name=0, header=None)
                     if df_excel.shape[0] > 5 and str(df_excel.iloc[4, 1]).strip() == "伝票番号":
                         file_like = io.BytesIO(content)
-                        records += parse_mitsubishi(file_like, filename)
+                        file_records = parse_mitsubishi(file_like, filename)
+                        new_records.extend(file_records)
+                        st.session_state.all_records.extend(file_records)
                     else:
                         st.warning(f"{filename} は未対応のExcelフォーマットです")
                 except Exception as e:
@@ -501,53 +488,59 @@ if st.session_state.get("authentication_status"):
                         # enhanced版PDF解析を優先して試行
                         pdf_records = []
                         enhanced_success = False
+                        enhanced_confidence = 0.0
                         
                         try:
                             with st.spinner("🔄 enhanced版PDF解析を試行中..."):
                                 enhanced_records = parse_pdf_enhanced(content, filename)
                             
                             if enhanced_records:
-                                records += enhanced_records
-                                enhanced_success = True
-                                
-                                # 信頼度情報の表示
+                                # 信頼度を計算
                                 confidence_records = [r for r in enhanced_records if r.get('confidence') is not None]
                                 if confidence_records:
-                                    avg_confidence = sum(r.get('confidence', 0) for r in confidence_records) / len(confidence_records)
-                                    if avg_confidence >= 0.8:
-                                        st.success(f"✅ {filename} の解析が完了しました（enhanced版 - 信頼度: {avg_confidence:.2f}）")
-                                    elif avg_confidence >= 0.5:
-                                        st.warning(f"⚠️ {filename} の解析が完了しました（enhanced版 - 信頼度: {avg_confidence:.2f} - 要確認）")
+                                    enhanced_confidence = sum(r.get('confidence', 0) for r in confidence_records) / len(confidence_records)
+                                
+                                # 信頼度が0.5以上の場合のみenhanced版を成功として扱う
+                                if enhanced_confidence >= 0.5:
+                                    new_records.extend(enhanced_records)
+                                    st.session_state.all_records.extend(enhanced_records)
+                                    enhanced_success = True
+                                    
+                                    if enhanced_confidence >= 0.8:
+                                        st.success(f"✅ {filename} の解析が完了しました（enhanced版 - 信頼度: {enhanced_confidence:.2f}）")
                                     else:
-                                        st.error(f"❌ {filename} の解析が完了しました（enhanced版 - 信頼度: {avg_confidence:.2f} - 手動確認推奨）")
-                                
-                                # レイアウト情報の表示
-                                layout_records = [r for r in enhanced_records if r.get('product_name') == 'レイアウト情報']
-                                if layout_records:
-                                    layout_info = layout_records[0].get('remark', '')
-                                    st.info(f"📋 レイアウト検知結果: {layout_info}")
-                                
-                                # 代替解釈の表示
-                                alternatives_records = [r for r in enhanced_records if r.get('alternatives')]
-                                if alternatives_records:
-                                    st.info("💡 代替解釈が提示されています。詳細を確認してください。")
+                                        st.warning(f"⚠️ {filename} の解析が完了しました（enhanced版 - 信頼度: {enhanced_confidence:.2f} - 要確認）")
+                                    
+                                    # レイアウト情報の表示
+                                    layout_records = [r for r in enhanced_records if r.get('product_name') == 'レイアウト情報']
+                                    if layout_records:
+                                        layout_info = layout_records[0].get('remark', '')
+                                        st.info(f"📋 レイアウト検知結果: {layout_info}")
+                                    
+                                    # 代替解釈の表示
+                                    alternatives_records = [r for r in enhanced_records if r.get('alternatives')]
+                                    if alternatives_records:
+                                        st.info("💡 代替解釈が提示されています。詳細を確認してください。")
+                                else:
+                                    st.warning(f"⚠️ enhanced版の信頼度が低いため（{enhanced_confidence:.2f}）、従来版を試行します")
                                 
                         except Exception as enhanced_error:
                             st.error(f"❌ enhanced版PDF解析に失敗: {enhanced_error}")
                         
-                        # enhanced版が失敗した場合、従来のPDF解析を試行
+                        # enhanced版が失敗した場合、または信頼度が低い場合、従来のPDF解析を試行
                         if not enhanced_success:
                             try:
                                 with st.spinner("🔄 従来版PDF解析を試行中..."):
                                     pdf_records = parse_pdf_handwritten(content, filename)
-                                records += pdf_records
+                                new_records.extend(pdf_records)
+                                st.session_state.all_records.extend(pdf_records)
                                 st.success(f"✅ {filename} の解析が完了しました（従来版）")
                             except Exception as pdf_error:
                                 st.error(f"❌ 従来のPDF解析にも失敗: {pdf_error}")
                                 st.error("❌ PDF解析に失敗しました。ファイルの形式を確認してください。")
                         
                         # 商品情報の抽出状況を確認
-                        final_pdf_records = [r for r in records if r.get('data_source') == filename]
+                        final_pdf_records = [r for r in new_records if r.get('data_source') == filename]
                         if final_pdf_records and final_pdf_records[0].get('product_name') == "商品情報なし":
                             st.warning("⚠️ 商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
                     
@@ -560,6 +553,9 @@ if st.session_state.get("authentication_status"):
                         st.info("1. Render Secrets FilesでOPENAI_API_KEYが正しく設定されているか確認")
                         st.info("2. アプリケーションを再デプロイして環境変数を反映")
                         st.info("3. Renderのログで詳細なエラー情報を確認")
+    
+    # すべてのレコード（既存+新規）を使用
+    records = st.session_state.all_records
     
     # レコードが存在する場合（空でも表示）
     if records:        
