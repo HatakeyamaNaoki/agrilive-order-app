@@ -190,7 +190,7 @@ if not st.session_state.get("authentication_status"):
             if ok:
                 st.sidebar.success(msg)
                 # 成功時にフォームをクリア
-                st.sidebar.rerun()
+                st.rerun()
             else:
                 st.sidebar.error(msg)
         else:
