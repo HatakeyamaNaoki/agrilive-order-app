@@ -24,5 +24,11 @@ CREATE TABLE IF NOT EXISTS order_items (
     quantity_received TEXT,
     unit_price TEXT,
     amount TEXT,
+    remark TEXT,                   -- 備考（右段の商品名や数量情報が含まれる可能性）
+    layout_type TEXT,              -- レイアウトタイプ（左右2段構成、1段構成、既印字商品名等）
+    layout_confidence REAL,        -- レイアウト検知の信頼度
+    is_preprinted BOOLEAN,        -- 既印字商品名かどうか
+    confidence REAL,               -- 抽出の信頼度
+    alternatives TEXT,             -- 代替解釈（JSON形式）
     FOREIGN KEY(order_id) REFERENCES orders(order_id)
 );
