@@ -11,6 +11,7 @@ from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
 from parser_mitsubishi import parse_mitsubishi
 from parser_pdf import parse_pdf_handwritten
+from enhanced_parser_pdf import parse_pdf_enhanced
 from docx import Document
 
 def is_admin(username):
@@ -448,12 +449,49 @@ if st.session_state.get("authentication_status"):
                             st.error(f"APIキー取得エラー: {api_error}")
                             continue
                         
-                        pdf_records = parse_pdf_handwritten(content, filename)
+                        # 改善されたPDF解析を使用
+                        pdf_records = parse_pdf_enhanced(content, filename)
                         records += pdf_records
+                        
+                        # 信頼度情報の表示
+                        if pdf_records:
+                            confidence_records = [r for r in pdf_records if r.get('confidence') is not None]
+                            if confidence_records:
+                                avg_confidence = sum(r.get('confidence', 0) for r in confidence_records) / len(confidence_records)
+                                if avg_confidence >= 0.8:
+                                    st.success(f"{filename} の解析が完了しました（信頼度: {avg_confidence:.2f}）")
+                                elif avg_confidence >= 0.5:
+                                    st.warning(f"{filename} の解析が完了しました（信頼度: {avg_confidence:.2f} - 要確認）")
+                                else:
+                                    st.error(f"{filename} の解析が完了しました（信頼度: {avg_confidence:.2f} - 手動確認推奨）")
+                            
+                            # 代替解釈の表示
+                            alternatives_records = [r for r in pdf_records if r.get('alternatives')]
+                            if alternatives_records:
+                                st.markdown("---")
+                                st.subheader("🔄 代替解釈")
+                                st.info("以下の項目で複数の解釈が可能です。手動で確認してください。")
+                                
+                                for i, record in enumerate(alternatives_records):
+                                    with st.expander(f"項目 {i+1}: {record.get('product_name', '商品名なし')}"):
+                                        col1, col2 = st.columns(2)
+                                        with col1:
+                                            st.write("**現在の解釈:**")
+                                            st.write(f"- 商品名: {record.get('product_name', '')}")
+                                            st.write(f"- 数量: {record.get('quantity', '')}")
+                                            st.write(f"- 単価: {record.get('unit_price', '')}")
+                                            st.write(f"- 金額: {record.get('amount', '')}")
+                                        
+                                        with col2:
+                                            st.write("**代替解釈:**")
+                                            alternatives = record.get('alternatives', [])
+                                            for j, alt in enumerate(alternatives):
+                                                st.write(f"- 解釈{j+1}: {alt}")
+                        
                         # 商品情報の抽出状況を確認
                         if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
                             st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
-                    st.success(f"{filename} の解析が完了しました")
+                    
                 except Exception as e:
                     st.error(f"{filename} の解析に失敗しました: {e}")
                     st.error(f"詳細エラー: {str(e)}")
@@ -468,26 +506,85 @@ if st.session_state.get("authentication_status"):
     if records:        
         df = pd.DataFrame(records)
         
+        # 統計情報の表示
+        st.markdown("---")
+        st.subheader("📊 解析結果統計")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("総レコード数", len(df))
+        
+        with col2:
+            confidence_records = [r for r in records if r.get('confidence') is not None]
+            if confidence_records:
+                avg_confidence = sum(r.get('confidence', 0) for r in confidence_records) / len(confidence_records)
+                st.metric("平均信頼度", f"{avg_confidence:.2f}")
+            else:
+                st.metric("平均信頼度", "N/A")
+        
+        with col3:
+            high_confidence = len([r for r in records if r.get('confidence', 0) >= 0.8])
+            st.metric("高信頼度レコード", high_confidence)
+        
+        with col4:
+            low_confidence = len([r for r in records if r.get('confidence', 0) < 0.5])
+            st.metric("要確認レコード", low_confidence)
+        
         # 空行除外の条件を緩和（商品名または備考に値がある場合は表示）
         if not df.empty:
             # 商品名または備考に値がある行のみを保持
             df = df[df['product_name'].notna() | df['remark'].notna()]
         
-        if not df.empty:
-            columns = [
-                "order_id", "order_date", "delivery_date", "partner_name",
-                "product_code", "product_name", "quantity", "unit", "unit_price", "amount", "remark", "data_source"
-            ]
-            df = df.reindex(columns=columns)
-            df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
+        def color_confidence(val):
+            """
+            信頼度に基づいて色分けする関数
+            """
+            try:
+                confidence = float(val)
+                if confidence >= 0.8:
+                    return 'background-color: #d4edda'  # 緑（高信頼度）
+                elif confidence >= 0.5:
+                    return 'background-color: #fff3cd'  # 黄（中信頼度）
+                else:
+                    return 'background-color: #f8d7da'  # 赤（低信頼度）
+            except:
+                return ''
 
-            edited_df = st.data_editor(
-                df,
-                use_container_width=True,
-                num_rows="dynamic",
-                key="editor",
-                hide_index=True
-            )
+        if not df.empty:
+            # 信頼度情報がある場合は追加
+            if 'confidence' in df.columns:
+                columns = [
+                    "order_id", "order_date", "delivery_date", "partner_name",
+                    "product_code", "product_name", "quantity", "unit", "unit_price", "amount", "remark", "data_source", "confidence"
+                ]
+                df = df.reindex(columns=columns)
+                df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元", "信頼度"]
+                
+                # 信頼度で色分けして表示
+                styled_df = df.style.applymap(color_confidence, subset=['信頼度'])
+                edited_df = st.data_editor(
+                    styled_df,
+                    use_container_width=True,
+                    num_rows="dynamic",
+                    key="editor",
+                    hide_index=True
+                )
+            else:
+                columns = [
+                    "order_id", "order_date", "delivery_date", "partner_name",
+                    "product_code", "product_name", "quantity", "unit", "unit_price", "amount", "remark", "data_source"
+                ]
+                df = df.reindex(columns=columns)
+                df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
+                
+                edited_df = st.data_editor(
+                    df,
+                    use_container_width=True,
+                    num_rows="dynamic",
+                    key="editor",
+                    hide_index=True
+                )
         else:
             st.warning("表示可能なデータがありません。商品情報の抽出に失敗した可能性があります。")
 
