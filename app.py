@@ -163,7 +163,20 @@ if st.session_state.get("authentication_status"):
         # 本番環境の場合
         st.sidebar.markdown("---")
         st.sidebar.subheader("OpenAI API設定（本番環境）")
-        st.sidebar.info("Render Secrets FilesからAPIキーを取得しています")
+        
+        # APIキーの状態を確認
+        try:
+            api_key = get_openai_api_key()
+            if api_key:
+                st.sidebar.success("Render Secrets FilesからAPIキーを正常に取得しています")
+                # APIキーの一部を表示（デバッグ用）
+                masked_key = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
+                st.sidebar.info(f"APIキー: {masked_key}")
+            else:
+                st.sidebar.error("APIキーが取得できません")
+        except Exception as e:
+            st.sidebar.error(f"APIキー取得エラー: {e}")
+            st.sidebar.info("Render Secrets Filesの設定を確認してください")
 
     st.subheader("注文データファイルのアップロード")
     uploaded_files = st.file_uploader(
@@ -204,6 +217,17 @@ if st.session_state.get("authentication_status"):
             elif filename.lower().endswith(".pdf"):
                 try:
                     with st.spinner(f"{filename} を解析中..."):
+                        # APIキーの事前確認
+                        try:
+                            from config import get_openai_api_key
+                            api_key = get_openai_api_key()
+                            if not api_key:
+                                st.error("OpenAI APIキーが設定されていません")
+                                continue
+                        except Exception as api_error:
+                            st.error(f"APIキー取得エラー: {api_error}")
+                            continue
+                        
                         pdf_records = parse_pdf_handwritten(content, filename)
                         records += pdf_records
                         # 商品情報の抽出状況を確認
@@ -213,6 +237,12 @@ if st.session_state.get("authentication_status"):
                 except Exception as e:
                     st.error(f"{filename} の解析に失敗しました: {e}")
                     st.error(f"詳細エラー: {str(e)}")
+                    # 本番環境での追加情報
+                    if is_production():
+                        st.info("本番環境でのトラブルシューティング:")
+                        st.info("1. Render Secrets FilesでOPENAI_API_KEYが正しく設定されているか確認")
+                        st.info("2. アプリケーションを再デプロイして環境変数を反映")
+                        st.info("3. Renderのログで詳細なエラー情報を確認")
     
     # レコードが存在する場合（空でも表示）
     if records:        

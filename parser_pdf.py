@@ -52,9 +52,18 @@ def analyze_handwritten_order_with_openai(pdf_bytes, filename):
     """
     # OpenAI APIキーを取得
     from config import get_openai_api_key
-    api_key = get_openai_api_key()
-    if not api_key:
-        raise Exception("OPENAI_API_KEYが設定されていません")
+    try:
+        api_key = get_openai_api_key()
+        if not api_key:
+            raise Exception("OPENAI_API_KEYが設定されていません")
+    except Exception as e:
+        # より詳細なエラー情報を提供
+        import os
+        is_render = os.getenv('RENDER', False)
+        if is_render:
+            raise Exception(f"本番環境でのAPIキー取得エラー: {e}. Render Secrets Filesの設定を確認してください。")
+        else:
+            raise Exception(f"ローカル環境でのAPIキー取得エラー: {e}. .envファイルの設定を確認してください。")
     
     client = openai.OpenAI(api_key=api_key)
     

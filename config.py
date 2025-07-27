@@ -13,8 +13,18 @@ def get_openai_api_key():
     """
     # 本番環境（Render）の場合
     if os.getenv('RENDER'):
-        api_key = os.getenv('OPENAI_API_KEY')
+        # 複数の環境変数名を試行
+        api_key = os.getenv('OPENAI_API_KEY') or os.getenv('OPENAI_API_KEY_SECRET')
+        
+        # デバッグ情報（本番環境ではログに出力される）
+        render_env = os.getenv('RENDER')
+        api_key_exists = bool(api_key)
+        print(f"Render環境: {render_env}, APIキー存在: {api_key_exists}")
+        
         if not api_key:
+            # 利用可能な環境変数を確認
+            env_vars = {k: v for k, v in os.environ.items() if 'OPENAI' in k or 'API' in k}
+            print(f"OpenAI関連環境変数: {env_vars}")
             raise Exception("本番環境でOPENAI_API_KEYが設定されていません。Render Secrets Filesを確認してください。")
         return api_key
     
