@@ -70,51 +70,59 @@ def extract_structured_text(image_bytes):
     """
     構造化されたテキスト抽出
     """
-    processed_images = enhance_image_for_ocr(image_bytes)
-    
-    results = {}
-    
-    # 複数の前処理結果でOCRを実行
-    for method, img in processed_images.items():
-        if method == 'original':
-            continue
-            
-        # PIL形式に変換
-        pil_img = Image.fromarray(img)
+    try:
+        processed_images = enhance_image_for_ocr(image_bytes)
         
-        # OCR実行（日本語設定）
-        try:
-            text = pytesseract.image_to_string(
-                pil_img, 
-                lang='jpn',
-                config='--psm 6 --oem 3'
-            )
-            results[method] = text.strip()
-        except Exception as e:
-            results[method] = f"OCR Error: {e}"
-    
-    return results
+        results = {}
+        
+        # 複数の前処理結果でOCRを実行
+        for method, img in processed_images.items():
+            if method == 'original':
+                continue
+                
+            # PIL形式に変換
+            pil_img = Image.fromarray(img)
+            
+            # OCR実行（日本語設定）
+            try:
+                text = pytesseract.image_to_string(
+                    pil_img, 
+                    lang='jpn',
+                    config='--psm 6 --oem 3'
+                )
+                results[method] = text.strip()
+            except Exception as e:
+                results[method] = f"OCR Error: {e}"
+        
+        return results
+    except Exception as e:
+        print(f"画像前処理エラー: {e}")
+        return {"error": f"画像前処理エラー: {e}"}
 
 def validate_text_quality(text):
     """
     テキスト品質の検証
     """
-    if not text:
-        return False, "テキストが空です"
-    
-    # 日本語文字の割合
-    japanese_chars = len([c for c in text if '\u3040' <= c <= '\u309F' or '\u30A0' <= c <= '\u30FF' or '\u4E00' <= c <= '\u9FAF'])
-    total_chars = len(text.replace(' ', '').replace('\n', ''))
-    
-    if total_chars == 0:
-        return False, "有効な文字がありません"
-    
-    japanese_ratio = japanese_chars / total_chars
-    
-    # 数字の割合
-    digits = len([c for c in text if c.isdigit()])
-    digit_ratio = digits / total_chars if total_chars > 0 else 0
-    
-    quality_score = (japanese_ratio * 0.6) + (digit_ratio * 0.4)
-    
-    return quality_score > 0.3, f"品質スコア: {quality_score:.2f} (日本語: {japanese_ratio:.2f}, 数字: {digit_ratio:.2f})" 
+    try:
+        if not text:
+            return False, "テキストが空です"
+        
+        # 日本語文字の割合
+        japanese_chars = len([c for c in text if '\u3040' <= c <= '\u309F' or '\u30A0' <= c <= '\u30FF' or '\u4E00' <= c <= '\u9FAF'])
+        total_chars = len(text.replace(' ', '').replace('\n', ''))
+        
+        if total_chars == 0:
+            return False, "有効な文字がありません"
+        
+        japanese_ratio = japanese_chars / total_chars
+        
+        # 数字の割合
+        digits = len([c for c in text if c.isdigit()])
+        digit_ratio = digits / total_chars if total_chars > 0 else 0
+        
+        quality_score = (japanese_ratio * 0.6) + (digit_ratio * 0.4)
+        
+        return quality_score > 0.3, f"品質スコア: {quality_score:.2f} (日本語: {japanese_ratio:.2f}, 数字: {digit_ratio:.2f})"
+    except Exception as e:
+        print(f"テキスト品質検証エラー: {e}")
+        return False, f"品質検証エラー: {e}" 

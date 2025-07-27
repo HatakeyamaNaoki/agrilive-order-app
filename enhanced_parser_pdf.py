@@ -241,6 +241,8 @@ def parse_pdf_enhanced(pdf_bytes, filename):
         return records
         
     except Exception as e:
+        print(f"改善版PDF解析エラー: {e}")
+        # エラーが発生した場合は空のレコードを返す
         return [{
             "order_id": "",
             "order_date": "",
@@ -252,7 +254,7 @@ def parse_pdf_enhanced(pdf_bytes, filename):
             "unit": "",
             "unit_price": "",
             "amount": "",
-            "remark": f"PDF解析エラー: {e}",
+            "remark": f"改善版PDF解析エラー: {e}",
             "data_source": filename,
             "confidence": 0.0
         }] 
