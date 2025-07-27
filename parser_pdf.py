@@ -182,6 +182,7 @@ def parse_pdf_handwritten(pdf_bytes, filename):
         order_date = parsed_data.get("order_date", "")
         delivery_date = parsed_data.get("delivery_date", "")
         partner_name = parsed_data.get("partner_name", "")
+        confidence = parsed_data.get("confidence", 0.5)  # デフォルト値0.5
         items = parsed_data.get("items", [])
         
         # 日付形式の変換（MM/DD、〇月〇日 → YYYY/MM/DD）
@@ -235,7 +236,8 @@ def parse_pdf_handwritten(pdf_bytes, filename):
                 "unit_price": item.get("unit_price", "") or item.get("単価", ""),
                 "amount": item.get("amount", "") or item.get("金額", ""),
                 "remark": item.get("remark", "") or item.get("備考", ""),
-                "data_source": filename
+                "data_source": filename,
+                "confidence": confidence
             }
             records.append(record)
         
@@ -253,7 +255,8 @@ def parse_pdf_handwritten(pdf_bytes, filename):
                 "unit_price": "",
                 "amount": "",
                 "remark": "PDF解析で商品情報を抽出できませんでした",
-                "data_source": filename
+                "data_source": filename,
+                "confidence": confidence * 0.5  # 商品情報なしの場合は信頼度を下げる
             }
             records.append(record)
         
