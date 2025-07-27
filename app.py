@@ -594,12 +594,19 @@ if st.session_state.get("authentication_status"):
 
         edited_df["数量"] = pd.to_numeric(edited_df["数量"], errors="coerce").fillna(0)
 
+        # 信頼度列がある場合は数値として処理
+        if "信頼度" in edited_df.columns:
+            edited_df["信頼度"] = pd.to_numeric(edited_df["信頼度"], errors="coerce").fillna(0)
+
         df_sorted = edited_df.sort_values(
             by=["商品名", "納品日", "発注日"], na_position="last"
         )
 
+        # 集計時は信頼度列を除外
+        df_for_agg = df_sorted.drop(columns=["信頼度"]) if "信頼度" in df_sorted.columns else df_sorted
+        
         df_agg = (
-            df_sorted
+            df_for_agg
             .groupby(["商品名", "備考", "単位"], dropna=False, as_index=False)
             .agg({"数量": "sum"})
         )
