@@ -63,7 +63,8 @@ def parse_mitsubishi(file_path: str, file_name: str) -> list[dict]:
                 ]
                 if pd.notna(cell) and str(cell).strip() != ""
             ).strip(),
-            "data_source": file_name
+            "data_source": file_name,
+            "confidence": 1.0,         # 構造化データなので高信頼度
         }
         result.append(item)
 

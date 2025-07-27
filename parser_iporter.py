@@ -56,7 +56,8 @@ def parse_iporter(file, filename=None):
                 "unit_price": row[51].replace("円", "").replace(",", "").strip(),
                 "amount": row[53].replace("円", "").replace(",", "").strip(),
                 "remark": row[55].strip(),
-                "data_source": filename if filename else ""
+                "data_source": filename if filename else "",
+                "confidence": 1.0,         # 構造化データなので高信頼度
             }
             records.append(record)
         i += 27

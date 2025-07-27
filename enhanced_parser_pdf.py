@@ -137,7 +137,7 @@ def analyze_with_confidence(pdf_bytes, filename):
 
 ## 解析対象ファイル
 ファイル名: {filename}
-信頼度スコア: {confidence_score:.2f}
+OCR信頼度スコア: {confidence_score:.2f}
 
 ## 重要: レイアウト検知の優先順位
 1. **最初に左右2段構成かどうかを判断**: 商品名が左右2段に配置されているかを確認
@@ -170,11 +170,15 @@ def analyze_with_confidence(pdf_bytes, filename):
         # JSONとして解析
         try:
             parsed_data = json.loads(content)
+            
+            # 解析結果に基づいて信頼度を計算
+            calculated_confidence = calculate_enhanced_confidence(parsed_data, confidence_score)
+            
             # 信頼度情報を統合
             if "order_info" in parsed_data:
-                parsed_data["order_info"]["confidence"] = confidence_score
+                parsed_data["order_info"]["confidence"] = calculated_confidence
             if "quality_assessment" in parsed_data:
-                parsed_data["quality_assessment"]["overall_confidence"] = confidence_score
+                parsed_data["quality_assessment"]["overall_confidence"] = calculated_confidence
             return parsed_data
         except json.JSONDecodeError:
             # JSON解析に失敗した場合のフォールバック
@@ -224,6 +228,55 @@ def analyze_with_confidence(pdf_bytes, filename):
             },
             "raw_text": best_text
         }
+
+def calculate_enhanced_confidence(parsed_data, ocr_confidence):
+    """
+    解析結果に基づいて信頼度を計算
+    """
+    base_confidence = ocr_confidence * 0.3  # OCR信頼度の30%を基本とする
+    
+    # 商品情報の抽出状況を評価
+    items = parsed_data.get("items", [])
+    if not items:
+        return base_confidence
+    
+    # 商品名が抽出されているかチェック
+    valid_items = 0
+    total_items = len(items)
+    
+    for item in items:
+        product_name = item.get("product_name", "")
+        quantity = item.get("quantity", "")
+        
+        # 商品名と数量の両方が抽出されている場合
+        if product_name and product_name.strip() and quantity and quantity.strip():
+            valid_items += 1
+    
+    # 商品抽出率を計算
+    item_confidence = valid_items / total_items if total_items > 0 else 0
+    
+    # 基本情報の抽出状況を評価
+    order_info = parsed_data.get("order_info", {})
+    info_confidence = 0
+    if order_info.get("order_id"):
+        info_confidence += 0.2
+    if order_info.get("order_date"):
+        info_confidence += 0.2
+    if order_info.get("partner_name"):
+        info_confidence += 0.2
+    
+    # レイアウト検知の信頼度
+    layout_confidence = parsed_data.get("document_structure", {}).get("detection_confidence", 0.0)
+    
+    # 総合信頼度を計算
+    total_confidence = (
+        base_confidence * 0.3 +      # OCR信頼度（30%）
+        item_confidence * 0.4 +      # 商品抽出率（40%）
+        info_confidence * 0.2 +      # 基本情報（20%）
+        layout_confidence * 0.1      # レイアウト検知（10%）
+    )
+    
+    return min(total_confidence, 1.0)  # 最大1.0に制限
 
 def parse_pdf_enhanced(pdf_bytes, filename):
     """
