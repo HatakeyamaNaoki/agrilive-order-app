@@ -43,24 +43,119 @@ def detect_csv_type(content_bytes):
     return 'unknown', None, debug_log
 
 def add_user(email, name, company, password):
-    with open("credentials.json", "r", encoding="utf-8") as f:
-        credentials = json.load(f)
-    if email in credentials['credentials']['usernames']:
+    import os
+    
+    # 動的ユーザー情報を読み込み
+    dynamic_users = load_dynamic_users()
+    
+    # 基本認証情報も確認（重複チェック）
+    base_credentials = load_credentials()
+    all_users = merge_credentials(base_credentials, dynamic_users)
+    
+    if email in all_users['credentials']['usernames']:
         return False, "このメールアドレスは既に登録されています。"
+    
     hashed_pw = stauth.Hasher.hash(password)
-    credentials['credentials']['usernames'][email] = {
-        "email": email,
+    
+    # 動的ユーザー情報に追加
+    dynamic_users["users"][email] = {
         "name": name,
         "company": company,
         "password": hashed_pw
     }
-    with open("credentials.json", "w", encoding="utf-8") as f:
-        json.dump(credentials, f, ensure_ascii=False, indent=4)
-    return True, "アカウントを追加しました。"
+    
+    # 動的ユーザーファイルに保存
+    if save_dynamic_users(dynamic_users):
+        return True, "アカウントを追加しました。"
+    else:
+        return False, "アカウントの保存に失敗しました。"
+
+def load_dynamic_users():
+    """
+    動的に追加されたユーザー情報を読み込む
+    """
+    try:
+        with open("dynamic_users.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        # ファイルが存在しない場合は空の構造を返す
+        return {"users": {}}
+    except Exception as e:
+        print(f"動的ユーザー読み込みエラー: {e}")
+        return {"users": {}}
+
+def save_dynamic_users(dynamic_users):
+    """
+    動的に追加されたユーザー情報を保存する
+    """
+    try:
+        with open("dynamic_users.json", "w", encoding="utf-8") as f:
+            json.dump(dynamic_users, f, ensure_ascii=False, indent=4)
+        return True
+    except Exception as e:
+        print(f"動的ユーザー保存エラー: {e}")
+        return False
+
+def merge_credentials(base_credentials, dynamic_users):
+    """
+    基本認証情報と動的ユーザー情報を統合する
+    """
+    merged_credentials = base_credentials.copy()
+    
+    # 動的ユーザーを基本認証情報に追加
+    for email, user_info in dynamic_users.get("users", {}).items():
+        merged_credentials["credentials"]["usernames"][email] = {
+            "email": email,
+            "name": user_info.get("name", ""),
+            "company": user_info.get("company", ""),
+            "password": user_info.get("password", "")
+        }
+    
+    return merged_credentials
 
 # --- 認証 ---
-with open("credentials.json", "r", encoding="utf-8") as f:
-    credentials_config = json.load(f)
+def load_credentials():
+    """
+    認証情報を読み込む
+    本番環境: Render Secrets Filesから
+    ローカル環境: ファイルから
+    """
+    import os
+    
+    # 本番環境（Render）の場合
+    if os.getenv('RENDER'):
+        try:
+            # Secret Filesから読み込みを試行
+            secret_paths = [
+                '/etc/secrets/credentials.json',
+                'credentials.json',
+                './credentials.json'
+            ]
+            
+            for path in secret_paths:
+                if os.path.exists(path):
+                    with open(path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+            
+            # Secret Filesで見つからない場合、通常のファイルから読み込み
+            with open("credentials.json", "r", encoding="utf-8") as f:
+                return json.load(f)
+                
+        except Exception as e:
+            print(f"認証情報読み込みエラー: {e}")
+            # フォールバック: 通常のファイルから読み込み
+            with open("credentials.json", "r", encoding="utf-8") as f:
+                return json.load(f)
+    
+    # ローカル開発環境の場合
+    with open("credentials.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+# 基本認証情報と動的ユーザー情報を統合
+base_credentials = load_credentials()
+dynamic_users = load_dynamic_users()
+credentials_config = merge_credentials(base_credentials, dynamic_users)
+
 authenticator = stauth.Authenticate(
     credentials=credentials_config['credentials'],
     cookie_name=credentials_config['cookie']['name'],
@@ -94,6 +189,8 @@ if not st.session_state.get("authentication_status"):
             ok, msg = add_user(new_email, new_name, new_company, new_password)
             if ok:
                 st.sidebar.success(msg)
+                # 成功時にフォームをクリア
+                st.sidebar.rerun()
             else:
                 st.sidebar.error(msg)
         else:
