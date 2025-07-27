@@ -305,7 +305,7 @@ if st.session_state.get("authentication_status"):
             st.info(f"**基本認証ファイル**: credentials.json")
             st.info(f"**動的ユーザーファイル**: dynamic_users.json")
         
-        return  # 管理者ダッシュボード表示時は通常の機能をスキップ
+        st.stop()  # 管理者ダッシュボード表示時は通常の機能をスキップ
 
     # デバッグ用: 動的ユーザー情報の確認（開発時のみ表示）
     if not is_production():
