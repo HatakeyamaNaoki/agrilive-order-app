@@ -1,0 +1,13 @@
+streamlit>=1.32.0
+streamlit-authenticator>=0.4.2
+extra-streamlit-components
+pandas>=2.0.0
+bcrypt>=4.0.1
+python-dotenv>=1.0.0
+xlsxwriter
+openpyxl
+python-docx
+openai>=1.0.0
+PyPDF2>=3.0.0
+pdfplumber>=0.10.0
+Pillow>=10.0.0
