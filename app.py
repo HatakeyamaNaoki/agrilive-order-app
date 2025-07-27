@@ -356,6 +356,33 @@ if st.session_state.get("authentication_status"):
     except Exception as e:
         st.error(f"管理者ダッシュボードエラー: {e}")
         # エラーが発生した場合は通常の機能を続行
+    
+    # 解析済みファイル管理
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("ファイル管理")
+    
+    if st.sidebar.button("解析済みファイル管理"):
+        st.subheader("📁 解析済みファイル管理")
+        
+        if st.session_state.processed_files:
+            st.write("**解析済みファイル一覧:**")
+            for filename, info in st.session_state.processed_files.items():
+                processed_time = datetime.datetime.fromisoformat(info['processed_at']).strftime('%Y-%m-%d %H:%M:%S')
+                st.write(f"• {filename} (解析時刻: {processed_time})")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("解析済みファイルをクリア"):
+                    st.session_state.processed_files = {}
+                    st.success("解析済みファイル情報をクリアしました。")
+                    st.rerun()
+            
+            with col2:
+                st.info(f"解析済みファイル数: {len(st.session_state.processed_files)}")
+        else:
+            st.info("解析済みファイルはありません。")
+        
+        st.stop()
 
     # デバッグ用: 動的ユーザー情報の確認（開発時のみ表示）
     if not is_production():
@@ -406,12 +433,34 @@ if st.session_state.get("authentication_status"):
         type=['txt', 'csv', 'xlsx', 'pdf']
     )
 
+    # セッション状態で解析済みファイルを管理
+    if 'processed_files' not in st.session_state:
+        st.session_state.processed_files = {}
+    
     records = []
     debug_details = []
     if uploaded_files:
         for file in uploaded_files:
             filename = file.name
-            content = file.read()
+            
+            # ファイルのハッシュ値を計算して重複チェック
+            import hashlib
+            file_hash = hashlib.md5(content := file.read()).hexdigest()
+            
+            # 既に解析済みのファイルかチェック
+            if filename in st.session_state.processed_files:
+                stored_hash = st.session_state.processed_files[filename]['hash']
+                if stored_hash == file_hash:
+                    st.info(f"{filename} は既に解析済みです。スキップします。")
+                    continue
+                else:
+                    st.info(f"{filename} の内容が変更されました。再解析します。")
+            
+            # 解析開始前にファイル情報を記録
+            st.session_state.processed_files[filename] = {
+                'hash': file_hash,
+                'processed_at': datetime.datetime.now().isoformat()
+            }
 
             if filename.lower().endswith((".txt", ".csv")):
                 filetype, detected_enc, debug_log = detect_csv_type(content)
@@ -449,23 +498,34 @@ if st.session_state.get("authentication_status"):
                             st.error(f"APIキー取得エラー: {api_error}")
                             continue
                         
-                        # まず従来のPDF解析を試行
+                        # 従来のPDF解析を試行
+                        pdf_records = []
+                        traditional_success = False
+                        
                         try:
                             pdf_records = parse_pdf_handwritten(content, filename)
                             records += pdf_records
+                            traditional_success = True
                             st.success(f"{filename} の解析が完了しました（従来方式）")
                         except Exception as pdf_error:
                             st.error(f"従来のPDF解析に失敗: {pdf_error}")
-                            
-                            # 改善版PDF解析を試行
+                        
+                        # 改善版PDF解析を試行（従来方式が失敗した場合、または商品情報が不十分な場合）
+                        if not traditional_success or (pdf_records and pdf_records[0].get('product_name') == "商品情報なし"):
                             try:
                                 st.info("改善版PDF解析を試行中...")
-                                pdf_records = parse_pdf_enhanced(content, filename)
-                                records += pdf_records
+                                enhanced_records = parse_pdf_enhanced(content, filename)
                                 
-                                # 信頼度情報の表示
-                                if pdf_records:
-                                    confidence_records = [r for r in pdf_records if r.get('confidence') is not None]
+                                # 改善版で成功した場合は従来方式の結果を置き換え
+                                if enhanced_records:
+                                    # 従来方式の結果を削除
+                                    if traditional_success:
+                                        records = [r for r in records if r.get('data_source') != filename]
+                                    
+                                    records += enhanced_records
+                                    
+                                    # 信頼度情報の表示
+                                    confidence_records = [r for r in enhanced_records if r.get('confidence') is not None]
                                     if confidence_records:
                                         avg_confidence = sum(r.get('confidence', 0) for r in confidence_records) / len(confidence_records)
                                         if avg_confidence >= 0.8:
@@ -476,16 +536,18 @@ if st.session_state.get("authentication_status"):
                                             st.error(f"{filename} の解析が完了しました（改善版 - 信頼度: {avg_confidence:.2f} - 手動確認推奨）")
                                     
                                     # 代替解釈の表示
-                                    alternatives_records = [r for r in pdf_records if r.get('alternatives')]
+                                    alternatives_records = [r for r in enhanced_records if r.get('alternatives')]
                                     if alternatives_records:
                                         st.info("代替解釈が提示されています。詳細を確認してください。")
                                 
                             except Exception as enhanced_error:
                                 st.error(f"改善版PDF解析にも失敗: {enhanced_error}")
-                                st.error("PDF解析に失敗しました。ファイルの形式を確認してください。")
+                                if not traditional_success:
+                                    st.error("PDF解析に失敗しました。ファイルの形式を確認してください。")
                         
                         # 商品情報の抽出状況を確認
-                        if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
+                        final_pdf_records = [r for r in records if r.get('data_source') == filename]
+                        if final_pdf_records and final_pdf_records[0].get('product_name') == "商品情報なし":
                             st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
                     
                 except Exception as e:
