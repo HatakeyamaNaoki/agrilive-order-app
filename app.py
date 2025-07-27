@@ -27,32 +27,36 @@ def get_all_users():
     """
     すべてのユーザー情報を取得（基本ユーザー + 動的ユーザー）
     """
-    base_credentials = load_credentials()
-    dynamic_users = load_dynamic_users()
-    
-    all_users = []
-    
-    # 基本ユーザー（Secret Files）
-    for email, user_info in base_credentials['credentials']['usernames'].items():
-        all_users.append({
-            "email": email,
-            "name": user_info.get("name", ""),
-            "company": user_info.get("company", ""),
-            "type": "基本ユーザー（Secret Files）",
-            "created_date": "管理者設定"
-        })
-    
-    # 動的ユーザー
-    for email, user_info in dynamic_users.get("users", {}).items():
-        all_users.append({
-            "email": email,
-            "name": user_info.get("name", ""),
-            "company": user_info.get("company", ""),
-            "type": "動的ユーザー",
-            "created_date": "新規登録"
-        })
-    
-    return all_users
+    try:
+        base_credentials = load_credentials()
+        dynamic_users = load_dynamic_users()
+        
+        all_users = []
+        
+        # 基本ユーザー（Secret Files）
+        for email, user_info in base_credentials['credentials']['usernames'].items():
+            all_users.append({
+                "email": email,
+                "name": user_info.get("name", ""),
+                "company": user_info.get("company", ""),
+                "type": "基本ユーザー（Secret Files）",
+                "created_date": "管理者設定"
+            })
+        
+        # 動的ユーザー
+        for email, user_info in dynamic_users.get("users", {}).items():
+            all_users.append({
+                "email": email,
+                "name": user_info.get("name", ""),
+                "company": user_info.get("company", ""),
+                "type": "動的ユーザー",
+                "created_date": "新規登録"
+            })
+        
+        return all_users
+    except Exception as e:
+        print(f"ユーザー情報取得エラー: {e}")
+        return []
 
 def load_docx_html(filepath):
     doc = Document(filepath)
@@ -280,73 +284,77 @@ if st.session_state.get("authentication_status"):
     st.success(f"{name} さん、ようこそ！")
     
     # 管理者ダッシュボード
-    if is_admin(username):
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("管理者ダッシュボード")
-        
-        if st.sidebar.button("アカウント状況確認"):
-            st.session_state.show_admin_dashboard = True
-        
-        if st.sidebar.button("通常画面に戻る"):
-            st.session_state.show_admin_dashboard = False
-    
-    # 管理者ダッシュボードの表示
-    if is_admin(username) and st.session_state.get("show_admin_dashboard", False):
-        st.markdown("---")
-        st.subheader("📊 管理者ダッシュボード")
-        
-        # 統計情報
-        all_users = get_all_users()
-        base_users = [u for u in all_users if u["type"] == "基本ユーザー（Secret Files）"]
-        dynamic_users = [u for u in all_users if u["type"] == "動的ユーザー"]
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("総ユーザー数", len(all_users))
-        with col2:
-            st.metric("基本ユーザー数", len(base_users))
-        with col3:
-            st.metric("動的ユーザー数", len(dynamic_users))
-        
-        # ユーザー一覧
-        st.subheader("👥 ユーザー一覧")
-        
-        if all_users:
-            # DataFrameに変換
-            df_users = pd.DataFrame(all_users)
-            df_users = df_users[["email", "name", "company", "type", "created_date"]]
-            df_users.columns = ["メールアドレス", "お名前", "会社名", "ユーザータイプ", "作成日"]
+    try:
+        if is_admin(username):
+            st.sidebar.markdown("---")
+            st.sidebar.subheader("管理者ダッシュボード")
             
-            st.dataframe(
-                df_users,
-                use_container_width=True,
-                hide_index=True
-            )
+            if st.sidebar.button("アカウント状況確認"):
+                st.session_state.show_admin_dashboard = True
             
-            # エクスポート機能
-            csv = df_users.to_csv(index=False, encoding='utf-8-sig')
-            st.download_button(
-                label="ユーザー一覧をCSVダウンロード",
-                data=csv,
-                file_name=f"ユーザー一覧_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                mime="text/csv"
-            )
-        else:
-            st.info("ユーザーが登録されていません。")
+            if st.sidebar.button("通常画面に戻る"):
+                st.session_state.show_admin_dashboard = False
         
-        # システム情報
-        st.subheader("⚙️ システム情報")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.info(f"**環境**: {'本番環境' if is_production() else '開発環境'}")
-            st.info(f"**現在のユーザー**: {username}")
-        
-        with col2:
-            st.info(f"**基本認証ファイル**: credentials.json")
-            st.info(f"**動的ユーザーファイル**: dynamic_users.json")
-        
-        st.stop()  # 管理者ダッシュボード表示時は通常の機能をスキップ
+        # 管理者ダッシュボードの表示
+        if is_admin(username) and st.session_state.get("show_admin_dashboard", False):
+            st.markdown("---")
+            st.subheader("📊 管理者ダッシュボード")
+            
+            # 統計情報
+            all_users = get_all_users()
+            base_users = [u for u in all_users if u["type"] == "基本ユーザー（Secret Files）"]
+            dynamic_users = [u for u in all_users if u["type"] == "動的ユーザー"]
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("総ユーザー数", len(all_users))
+            with col2:
+                st.metric("基本ユーザー数", len(base_users))
+            with col3:
+                st.metric("動的ユーザー数", len(dynamic_users))
+            
+            # ユーザー一覧
+            st.subheader("👥 ユーザー一覧")
+            
+            if all_users:
+                # DataFrameに変換
+                df_users = pd.DataFrame(all_users)
+                df_users = df_users[["email", "name", "company", "type", "created_date"]]
+                df_users.columns = ["メールアドレス", "お名前", "会社名", "ユーザータイプ", "作成日"]
+                
+                st.dataframe(
+                    df_users,
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # エクスポート機能
+                csv = df_users.to_csv(index=False, encoding='utf-8-sig')
+                st.download_button(
+                    label="ユーザー一覧をCSVダウンロード",
+                    data=csv,
+                    file_name=f"ユーザー一覧_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.info("ユーザーが登録されていません。")
+            
+            # システム情報
+            st.subheader("⚙️ システム情報")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.info(f"**環境**: {'本番環境' if is_production() else '開発環境'}")
+                st.info(f"**現在のユーザー**: {username}")
+            
+            with col2:
+                st.info(f"**基本認証ファイル**: credentials.json")
+                st.info(f"**動的ユーザーファイル**: dynamic_users.json")
+            
+            st.stop()  # 管理者ダッシュボード表示時は通常の機能をスキップ
+    except Exception as e:
+        st.error(f"管理者ダッシュボードエラー: {e}")
+        # エラーが発生した場合は通常の機能を続行
 
     # デバッグ用: 動的ユーザー情報の確認（開発時のみ表示）
     if not is_production():
