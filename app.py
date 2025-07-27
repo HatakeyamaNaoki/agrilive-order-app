@@ -160,36 +160,8 @@ if st.session_state.get("authentication_status"):
             st.sidebar.error(f"APIキーの取得に失敗: {e}")
             st.sidebar.info("ローカル開発時は.envファイルにOPENAI_API_KEYを設定してください")
     else:
-        # 本番環境の場合
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("OpenAI API設定（本番環境）")
-        
-        # APIキーの状態を確認
-        try:
-            api_key = get_openai_api_key()
-            if api_key:
-                st.sidebar.success("Render Secrets FilesからAPIキーを正常に取得しています")
-                # APIキーの一部を表示（デバッグ用）
-                masked_key = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
-                st.sidebar.info(f"APIキー: {masked_key}")
-            else:
-                st.sidebar.error("APIキーが取得できません")
-        except Exception as e:
-            st.sidebar.error(f"APIキー取得エラー: {e}")
-            st.sidebar.info("Render Secrets Filesの設定を確認してください")
-            st.sidebar.markdown("""
-            **Render Secrets Files設定手順:**
-            1. Renderダッシュボードでプロジェクトを開く
-            2. 「Environment」タブを選択
-            3. 「Secrets Files」セクションで以下を設定:
-               - キー: `OPENAI_API_KEY`
-               - 値: あなたのOpenAI APIキー
-            4. 「Save Changes」をクリック
-            5. アプリケーションを再デプロイ
-            
-            **注意:** Secret Filesは環境変数とは異なり、ファイルとして保存されます。
-            アプリケーションのルートディレクトリまたは `/etc/secrets/` からアクセスできます。
-            """)
+        # 本番環境の場合 - APIキー情報は表示しない
+        pass
 
     st.subheader("注文データファイルのアップロード")
     uploaded_files = st.file_uploader(
