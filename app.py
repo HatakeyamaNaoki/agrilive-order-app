@@ -13,6 +13,47 @@ from parser_mitsubishi import parse_mitsubishi
 from parser_pdf import parse_pdf_handwritten
 from docx import Document
 
+def is_admin(username):
+    """
+    管理者かどうかを判定
+    """
+    # 管理者メールアドレスのリスト
+    admin_emails = [
+        "n.hatakeyama@agrilive.co.jp"  # 実際の管理者メール
+    ]
+    return username in admin_emails
+
+def get_all_users():
+    """
+    すべてのユーザー情報を取得（基本ユーザー + 動的ユーザー）
+    """
+    base_credentials = load_credentials()
+    dynamic_users = load_dynamic_users()
+    
+    all_users = []
+    
+    # 基本ユーザー（Secret Files）
+    for email, user_info in base_credentials['credentials']['usernames'].items():
+        all_users.append({
+            "email": email,
+            "name": user_info.get("name", ""),
+            "company": user_info.get("company", ""),
+            "type": "基本ユーザー（Secret Files）",
+            "created_date": "管理者設定"
+        })
+    
+    # 動的ユーザー
+    for email, user_info in dynamic_users.get("users", {}).items():
+        all_users.append({
+            "email": email,
+            "name": user_info.get("name", ""),
+            "company": user_info.get("company", ""),
+            "type": "動的ユーザー",
+            "created_date": "新規登録"
+        })
+    
+    return all_users
+
 def load_docx_html(filepath):
     doc = Document(filepath)
     html = ""
@@ -501,44 +542,3 @@ elif st.session_state.get("authentication_status") is False:
     st.error("ユーザー名またはパスワードが正しくありません。")
 elif st.session_state.get("authentication_status") is None:
     st.warning("ログイン情報を入力してください。")
-
-def is_admin(username):
-    """
-    管理者かどうかを判定
-    """
-    # 管理者メールアドレスのリスト
-    admin_emails = [
-        "n.hatakeyama@agrilive.co.jp"  # 実際の管理者メール
-    ]
-    return username in admin_emails
-
-def get_all_users():
-    """
-    すべてのユーザー情報を取得（基本ユーザー + 動的ユーザー）
-    """
-    base_credentials = load_credentials()
-    dynamic_users = load_dynamic_users()
-    
-    all_users = []
-    
-    # 基本ユーザー（Secret Files）
-    for email, user_info in base_credentials['credentials']['usernames'].items():
-        all_users.append({
-            "email": email,
-            "name": user_info.get("name", ""),
-            "company": user_info.get("company", ""),
-            "type": "基本ユーザー（Secret Files）",
-            "created_date": "管理者設定"
-        })
-    
-    # 動的ユーザー
-    for email, user_info in dynamic_users.get("users", {}).items():
-        all_users.append({
-            "email": email,
-            "name": user_info.get("name", ""),
-            "company": user_info.get("company", ""),
-            "type": "動的ユーザー",
-            "created_date": "新規登録"
-        })
-    
-    return all_users
