@@ -213,20 +213,30 @@ def get_line_orders_for_user(email):
     try:
         orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
         if not os.path.exists(orders_file):
+            print(f"❌ orders.jsonファイルが存在しません: {orders_file}")
             return []
         
         with open(orders_file, "r", encoding="utf-8") as f:
             all_orders = json.load(f)
         
+        print(f"📊 全注文データ数: {len(all_orders)}")
+        
         # ユーザーのLINE IDを取得
         user_line_id = get_line_account(email)
+        print(f"👤 ユーザー: {email}, LINE ID: {user_line_id}")
         
         # LINE IDでフィルタ（公式アカウント経由の場合）
         if user_line_id:
             user_orders = [order for order in all_orders if order.get("line_account") == user_line_id]
+            print(f"🔍 LINE IDでフィルタ: {len(user_orders)}件")
         else:
             # LINE IDが設定されていない場合は、ユーザー名で直接フィルタ（手動アップロード用）
             user_orders = [order for order in all_orders if order.get("line_account") == email]
+            print(f"🔍 ユーザー名でフィルタ: {len(user_orders)}件")
+        
+        # デバッグ: 全注文データの詳細を表示
+        for i, order in enumerate(all_orders):
+            print(f"📋 注文{i+1}: line_account={order.get('line_account')}, sender_name={order.get('sender_name')}")
         
         return user_orders
     except Exception as e:
