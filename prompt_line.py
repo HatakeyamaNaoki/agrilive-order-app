@@ -31,7 +31,7 @@ def get_line_order_prompt():
 
 ### 1. 基本情報の抽出
 - **order_id**: LINE注文では通常空文字
-- **order_date**: 注文受信日（現在日時）
+- **order_date**: 発注日（LINE画像から読み取れない場合は日本時間の本日の日付)
 - **delivery_date**: 納品希望日（「明日」「明後日」などの相対表現は具体的な日付に変換）
 - **partner_name**: LINE送信者名
 

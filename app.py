@@ -45,24 +45,38 @@ def line_webhook():
                     if event['message']['type'] == 'image':
                         # 送信者情報を取得
                         sender_id = event['source']['userId']
-                        sender_name = "LINE送信者"  # 実際の実装ではLINE APIで名前を取得
-                        
-                        # 画像を取得
-                        message_id = event['message']['id']
                         line_channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
                         
                         if line_channel_access_token:
-                            # LINE APIから画像を取得
+                            # LINE APIで送信者のプロフィール情報を取得
                             headers = {
                                 'Authorization': f'Bearer {line_channel_access_token}'
                             }
-                            response = requests.get(
+                            
+                            # 送信者名を取得
+                            profile_response = requests.get(
+                                f'https://api.line.me/v2/bot/profile/{sender_id}',
+                                headers=headers
+                            )
+                            
+                            if profile_response.status_code == 200:
+                                profile_data = profile_response.json()
+                                sender_name = profile_data.get('displayName', 'LINE送信者')
+                                print(f"送信者情報: {sender_name} ({sender_id})")
+                            else:
+                                sender_name = "LINE送信者"
+                                print(f"送信者情報取得エラー: {profile_response.status_code}")
+                            
+                            # 画像を取得
+                            message_id = event['message']['id']
+                            image_response = requests.get(
                                 f'https://api-data.line.me/v2/bot/message/{message_id}/content',
                                 headers=headers
                             )
                             
-                            if response.status_code == 200:
-                                image_data = response.content
+                            if image_response.status_code == 200:
+                                image_data = image_response.content
+                                print(f"画像取得成功: {len(image_data)} bytes")
                                 
                                 # 注文データを保存
                                 success, message = save_line_order_data(
@@ -73,18 +87,23 @@ def line_webhook():
                                 )
                                 
                                 if success:
-                                    print(f"LINE注文データを保存しました: {message}")
+                                    print(f"✅ LINE注文データを保存しました: {message}")
+                                    # 成功レスポンスをLINEに返す
+                                    return jsonify({'status': 'ok', 'message': '注文データを受信しました'})
                                 else:
-                                    print(f"LINE注文データ保存エラー: {message}")
+                                    print(f"❌ LINE注文データ保存エラー: {message}")
+                                    return jsonify({'status': 'error', 'message': message}), 500
                             else:
-                                print(f"LINE画像取得エラー: {response.status_code}")
+                                print(f"❌ LINE画像取得エラー: {image_response.status_code}")
+                                return jsonify({'status': 'error', 'message': '画像の取得に失敗しました'}), 500
                         else:
-                            print("LINE_CHANNEL_ACCESS_TOKENが設定されていません")
+                            print("❌ LINE_CHANNEL_ACCESS_TOKENが設定されていません")
+                            return jsonify({'status': 'error', 'message': '設定エラー'}), 500
         
         return jsonify({'status': 'ok'})
         
     except Exception as e:
-        print(f"LINE Webhook処理エラー: {e}")
+        print(f"❌ LINE Webhook処理エラー: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @webhook_app.route('/health', methods=['GET'])
@@ -208,8 +227,16 @@ def get_line_orders_for_user(email):
         with open(orders_file, "r", encoding="utf-8") as f:
             all_orders = json.load(f)
         
-        # ユーザー名で直接フィルタ（手動アップロード用）
-        user_orders = [order for order in all_orders if order.get("line_account") == email]
+        # ユーザーのLINE IDを取得
+        user_line_id = get_line_account(email)
+        
+        # LINE IDでフィルタ（公式アカウント経由の場合）
+        if user_line_id:
+            user_orders = [order for order in all_orders if order.get("line_account") == user_line_id]
+        else:
+            # LINE IDが設定されていない場合は、ユーザー名で直接フィルタ（手動アップロード用）
+            user_orders = [order for order in all_orders if order.get("line_account") == email]
+        
         return user_orders
     except Exception as e:
         print(f"LINE注文データ取得エラー: {e}")
@@ -301,6 +328,13 @@ def parse_line_order_with_openai(image_path, sender_name, message_text=""):
             cleaned_content = cleaned_content.strip()
             
             parsed_data = json.loads(cleaned_content)
+            
+            # 発注日が空の場合は日本時間の本日を設定
+            if not parsed_data.get("order_date"):
+                jst = timezone(timedelta(hours=9))
+                current_time = datetime.now(jst)
+                parsed_data["order_date"] = current_time.strftime("%Y/%m/%d")
+            
             return parsed_data
         except json.JSONDecodeError as e:
             raise Exception(f"JSON解析エラー: {e}")
@@ -594,6 +628,47 @@ def show_webhook_info():
                 st.sidebar.warning("⚠️ Webhookサーバー応答なし")
         except:
             st.sidebar.warning("⚠️ Webhookサーバー接続エラー")
+        
+        # LINE設定情報
+        line_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
+        if line_token:
+            st.sidebar.success("✅ LINE_CHANNEL_ACCESS_TOKEN設定済み")
+            # トークンの一部を表示（セキュリティのため）
+            token_preview = line_token[:10] + "..." + line_token[-10:] if len(line_token) > 20 else "***"
+            st.sidebar.info(f"トークン: {token_preview}")
+        else:
+            st.sidebar.error("❌ LINE_CHANNEL_ACCESS_TOKEN未設定")
+        
+        # 最近の受信状況
+        try:
+            orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+            if os.path.exists(orders_file):
+                with open(orders_file, "r", encoding="utf-8") as f:
+                    all_orders = json.load(f)
+                
+                # 最近24時間の受信を確認
+                from datetime import datetime, timedelta
+                now = datetime.now()
+                recent_orders = []
+                
+                for order in all_orders:
+                    try:
+                        order_time = datetime.strptime(order['timestamp'], "%Y%m%d_%H%M%S")
+                        if now - order_time < timedelta(hours=24):
+                            recent_orders.append(order)
+                    except:
+                        continue
+                
+                if recent_orders:
+                    st.sidebar.success(f"✅ 過去24時間で {len(recent_orders)} 件受信")
+                    for order in recent_orders[-3:]:  # 最新3件を表示
+                        st.sidebar.info(f"📋 {order['sender_name']} - {order['order_date']}")
+                else:
+                    st.sidebar.info("📭 過去24時間の受信なし")
+            else:
+                st.sidebar.info("📭 まだ受信データなし")
+        except Exception as e:
+            st.sidebar.error(f"受信状況確認エラー: {e}")
         
         # LINE注文データの自動更新
         st.sidebar.markdown("---")
