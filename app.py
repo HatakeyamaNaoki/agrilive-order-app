@@ -11,8 +11,310 @@ from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
 from parser_mitsubishi import parse_mitsubishi
 from parser_pdf import parse_pdf_handwritten
-from enhanced_parser_pdf import parse_pdf_enhanced
 from docx import Document
+import pdfplumber
+from PIL import Image
+import base64
+import os
+from datetime import datetime, timezone, timedelta
+
+# LINE注文データ管理用のディレクトリ
+LINE_ORDERS_DIR = "line_orders"
+if not os.path.exists(LINE_ORDERS_DIR):
+    os.makedirs(LINE_ORDERS_DIR)
+
+def add_line_account(email, line_account):
+    """
+    LINEアカウント情報を追加・更新
+    """
+    try:
+        dynamic_users = load_dynamic_users()
+        
+        if email in dynamic_users.get("users", {}):
+            dynamic_users["users"][email]["line_account"] = line_account
+        else:
+            # 基本ユーザーにもLINEアカウント情報を追加
+            base_credentials = load_credentials()
+            if email in base_credentials["credentials"]["usernames"]:
+                base_credentials["credentials"]["usernames"][email]["line_account"] = line_account
+                # 基本認証情報を保存（ローカル環境の場合）
+                if not is_production():
+                    with open("credentials.json", "w", encoding="utf-8") as f:
+                        json.dump(base_credentials, f, ensure_ascii=False, indent=4)
+        
+        # 動的ユーザー情報を保存
+        if save_dynamic_users(dynamic_users):
+            return True, "LINEアカウント情報を更新しました。"
+        else:
+            return False, "LINEアカウント情報の保存に失敗しました。"
+    except Exception as e:
+        return False, f"LINEアカウント情報更新エラー: {e}"
+
+def get_line_account(email):
+    """
+    ユーザーのLINEアカウント情報を取得
+    """
+    try:
+        # 動的ユーザーから確認
+        dynamic_users = load_dynamic_users()
+        if email in dynamic_users.get("users", {}):
+            return dynamic_users["users"][email].get("line_account", "")
+        
+        # 基本ユーザーから確認
+        base_credentials = load_credentials()
+        if email in base_credentials["credentials"]["usernames"]:
+            return base_credentials["credentials"]["usernames"][email].get("line_account", "")
+        
+        return ""
+    except Exception as e:
+        print(f"LINEアカウント取得エラー: {e}")
+        return ""
+
+def save_line_order_data(line_account, sender_name, image_data, message_text=""):
+    """
+    LINE注文データを保存
+    """
+    try:
+        # 現在の日時を取得
+        jst = timezone(timedelta(hours=9))
+        current_time = datetime.now(jst)
+        order_date = current_time.strftime("%Y/%m/%d")
+        timestamp = current_time.strftime("%Y%m%d_%H%M%S")
+        
+        # 注文データを作成
+        order_data = {
+            "line_account": line_account,
+            "sender_name": sender_name,
+            "order_date": order_date,
+            "timestamp": timestamp,
+            "message_text": message_text,
+            "image_filename": f"line_order_{timestamp}.png",
+            "processed": False
+        }
+        
+        # 画像データを保存
+        image_path = os.path.join(LINE_ORDERS_DIR, order_data["image_filename"])
+        with open(image_path, "wb") as f:
+            f.write(image_data)
+        
+        # 注文データをJSONファイルに保存
+        orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+        orders = []
+        if os.path.exists(orders_file):
+            with open(orders_file, "r", encoding="utf-8") as f:
+                orders = json.load(f)
+        
+        orders.append(order_data)
+        
+        with open(orders_file, "w", encoding="utf-8") as f:
+            json.dump(orders, f, ensure_ascii=False, indent=4)
+        
+        return True, "LINE注文データを保存しました。"
+    except Exception as e:
+        return False, f"LINE注文データ保存エラー: {e}"
+
+def get_line_orders_for_user(email):
+    """
+    ユーザーに関連するLINE注文データを取得
+    """
+    try:
+        line_account = get_line_account(email)
+        if not line_account:
+            return []
+        
+        orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+        if not os.path.exists(orders_file):
+            return []
+        
+        with open(orders_file, "r", encoding="utf-8") as f:
+            all_orders = json.load(f)
+        
+        # ユーザーのLINEアカウントに関連する注文のみをフィルタ
+        user_orders = [order for order in all_orders if order.get("line_account") == line_account]
+        return user_orders
+    except Exception as e:
+        print(f"LINE注文データ取得エラー: {e}")
+        return []
+
+def get_all_line_orders():
+    """
+    すべてのLINE注文データを取得（管理者用）
+    """
+    try:
+        orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+        if not os.path.exists(orders_file):
+            return []
+        
+        with open(orders_file, "r", encoding="utf-8") as f:
+            all_orders = json.load(f)
+        
+        return all_orders
+    except Exception as e:
+        print(f"全LINE注文データ取得エラー: {e}")
+        return []
+
+def get_available_line_ids():
+    """
+    システムに登録されているLINE IDの一覧を取得
+    """
+    try:
+        orders = get_all_line_orders()
+        line_ids = set()
+        
+        for order in orders:
+            if order.get("line_account"):
+                line_ids.add(order["line_account"])
+        
+        return list(line_ids)
+    except Exception as e:
+        print(f"LINE ID一覧取得エラー: {e}")
+        return []
+
+def parse_line_order_with_openai(image_path, sender_name, message_text=""):
+    """
+    OpenAI APIを使用してLINE注文画像を解析
+    """
+    try:
+        api_key = get_openai_api_key()
+        if not api_key:
+            raise Exception("OPENAI_API_KEYが設定されていません")
+        
+        import openai
+        client = openai.OpenAI(api_key=api_key)
+        
+        # 画像をbase64エンコード
+        with open(image_path, "rb") as image_file:
+            image_data = base64.b64encode(image_file.read()).decode('utf-8')
+        
+        # システムプロンプト
+        system_prompt = """
+あなたはLINE注文の構造化データ抽出の専門家です。LINEの注文スクリーンショットから以下の情報をJSON形式で正確に抽出してください。
+
+【抽出する項目】
+- 納品日（LINEのメッセージ内に記載。YYYY/MM/DD形式で出力。なければ空文字列）
+- 商品リスト（items配列として出力）
+    - 商品名（必須、LINEのメッセージ内に記載）
+    - 数量（必須、数字のみ）
+    - 単位（必須。例: kg, p, L, 本, 束, 箱, ケース, 袋, パック, ボックス など）
+    - 単価（なければ空文字列）
+    - 金額（なければ空文字列）
+    - 備考（LINEのメッセージ内に記載。なければ空文字列）
+
+【出力形式】
+必ず下記のJSON構造で返してください。
+
+{
+  "delivery_date": "",
+  "items": [
+    {
+      "product_name": "",
+      "quantity": "",
+      "unit": "",
+      "unit_price": "",
+      "amount": "",
+      "remark": ""
+    }
+  ]
+}
+
+【重要な指示】
+- 手書き文字は一字一句正確に読み取ることを心がけてください。
+- 商品名・数量は必ず抽出してください。
+- 項目が見つからない場合は空文字列で出力してください。
+- 数量や単価・金額は数字のみで出力してください（単位はunit欄に分離）。
+- JSON以外の出力や説明は不要です。
+"""
+        
+        # OpenAI APIを呼び出し
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": f"送信者: {sender_name}\nメッセージ: {message_text}\n\nこのLINE注文を解析してください。"},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_data}"}}
+                    ]
+                }
+            ],
+            max_tokens=2000,
+            temperature=0.1
+        )
+        
+        # レスポンスを解析
+        content = response.choices[0].message.content
+        
+        # JSONとして解析
+        try:
+            cleaned_content = content.strip()
+            if cleaned_content.startswith('```json'):
+                cleaned_content = cleaned_content[7:]
+            if cleaned_content.endswith('```'):
+                cleaned_content = cleaned_content[:-3]
+            cleaned_content = cleaned_content.strip()
+            
+            parsed_data = json.loads(cleaned_content)
+            return parsed_data
+        except json.JSONDecodeError as e:
+            raise Exception(f"JSON解析エラー: {e}")
+            
+    except Exception as e:
+        raise Exception(f"LINE注文解析エラー: {e}")
+
+def extract_pdf_images(pdf_bytes):
+    """
+    PDFからページ全体を画像として抽出してPIL Imageオブジェクトのリストを返す
+    """
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            page_images = []
+            for page_num, page in enumerate(pdf.pages):
+                try:
+                    # ページを画像としてレンダリング
+                    page_image = page.to_image()
+                    if page_image:
+                        pil_image = page_image.original
+                        page_images.append({
+                            'page': page_num + 1,
+                            'image': pil_image
+                        })
+                except Exception as e:
+                    st.warning(f"ページ {page_num + 1} の画像化に失敗: {e}")
+            
+            return page_images
+    except Exception as e:
+        st.error(f"PDF画像抽出エラー: {e}")
+        return []
+
+def display_pdf_images(images, filename):
+    """
+    PDFから抽出したページ画像をWeb上に表示
+    """
+    if not images:
+        st.info(f"{filename} から画像を抽出できませんでした。")
+        return
+    
+    st.subheader(f"📄 {filename} の画像表示")
+    
+    # ページ画像を表示
+    if len(images) == 1:
+        img_data = images[0]
+        st.write(f"**ページ {img_data['page']}**")
+        st.image(img_data['image'], caption=f"ページ {img_data['page']}", width=400)
+    else:
+        # 複数ページの場合は2ページずつ1行で表示
+        for i in range(0, len(images), 2):
+            cols = st.columns(2)
+            for j in range(2):
+                if i + j < len(images):
+                    img_data = images[i + j]
+                    with cols[j]:
+                        st.write(f"**ページ {img_data['page']}**")
+                        st.image(img_data['image'], caption=f"ページ {img_data['page']}", width=400)
 
 def is_admin(username):
     """
@@ -218,6 +520,128 @@ st.set_page_config(page_title="受発注データ集計アプリ（アグリラ�
 st.image("会社ロゴ.png", width=220)
 st.title("受発注データ集計アプリ（アグリライブ）")
 
+# LINE公式アカウントWebhook用のFlaskアプリ
+def create_line_webhook_app():
+    """
+    LINE公式アカウントからのWebhookを受信するFlaskアプリを作成
+    """
+    from flask import Flask, request, jsonify
+    import requests
+    
+    app = Flask(__name__)
+    
+    @app.route('/webhook/line', methods=['POST'])
+    def line_webhook():
+        try:
+            # LINEからのリクエストを処理
+            data = request.get_json()
+            
+            # メッセージイベントを処理
+            if data.get('events'):
+                for event in data['events']:
+                    if event['type'] == 'message':
+                        # 画像メッセージの場合
+                        if event['message']['type'] == 'image':
+                            # 送信者情報を取得
+                            sender_id = event['source']['userId']
+                            sender_name = "LINE送信者"  # 実際の実装ではLINE APIで名前を取得
+                            
+                            # 画像を取得
+                            message_id = event['message']['id']
+                            line_channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
+                            
+                            if line_channel_access_token:
+                                # LINE APIから画像を取得
+                                headers = {
+                                    'Authorization': f'Bearer {line_channel_access_token}'
+                                }
+                                response = requests.get(
+                                    f'https://api-data.line.me/v2/bot/message/{message_id}/content',
+                                    headers=headers
+                                )
+                                
+                                if response.status_code == 200:
+                                    image_data = response.content
+                                    
+                                    # 注文データを保存
+                                    success, message = save_line_order_data(
+                                        sender_id,  # LINEアカウントID
+                                        sender_name,
+                                        image_data,
+                                        ""  # メッセージテキスト
+                                    )
+                                    
+                                    if success:
+                                        print(f"LINE注文データを保存しました: {message}")
+                                    else:
+                                        print(f"LINE注文データ保存エラー: {message}")
+                                else:
+                                    print(f"LINE画像取得エラー: {response.status_code}")
+                            else:
+                                print("LINE_CHANNEL_ACCESS_TOKENが設定されていません")
+            
+            return jsonify({'status': 'ok'})
+            
+        except Exception as e:
+            print(f"LINE Webhook処理エラー: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+    
+    return app
+
+# LINE Webhookサーバーを起動する関数
+def start_line_webhook_server():
+    """
+    LINE Webhookサーバーを起動
+    """
+    try:
+        app = create_line_webhook_app()
+        # 本番環境（Render）でのみ起動
+        if is_production():
+            import threading
+            def run_server():
+                # Render環境でのWebhookサーバー起動
+                port = int(os.getenv('PORT', 5000))
+                app.run(host='0.0.0.0', port=port, debug=False)
+            
+            # バックグラウンドでサーバーを起動
+            server_thread = threading.Thread(target=run_server, daemon=True)
+            server_thread.start()
+            print(f"🌐 Render Webhook URL: https://your-app-name.onrender.com/webhook/line")
+            print("💡 このURLをLINE公式アカウントのWebhook設定に設定してください")
+        else:
+            # ローカル環境ではngrokを使用
+            import threading
+            try:
+                from pyngrok import ngrok
+                
+                def run_server():
+                    try:
+                        # ngrokでHTTPSトンネルを作成
+                        ngrok.kill()
+                        public_url = ngrok.connect(5000)
+                        webhook_url = f"{public_url}/webhook/line"
+                        
+                        print(f"🌐 ngrok HTTPS URL: {public_url}")
+                        print(f"📱 LINE Webhook URL: {webhook_url}")
+                        print("💡 このURLをLINE公式アカウントのWebhook設定に設定してください")
+                        
+                        app.run(host='0.0.0.0', port=5000, debug=False)
+                    except Exception as e:
+                        print(f"ngrok起動エラー: {e}")
+                        app.run(host='0.0.0.0', port=5000, debug=False)
+                
+                server_thread = threading.Thread(target=run_server, daemon=True)
+                server_thread.start()
+            except ImportError:
+                print("⚠️ ローカル環境ではpyngrokが必要です: pip install pyngrok")
+            
+    except Exception as e:
+        print(f"LINE Webhookサーバー起動エラー: {e}")
+
+# アプリケーション起動時にLINE Webhookサーバーを起動
+if __name__ == "__main__":
+    start_line_webhook_server()
+
 # --- サイドバー ---
 if not st.session_state.get("authentication_status"):
     st.sidebar.markdown("---")
@@ -284,6 +708,77 @@ if st.session_state.get("authentication_status"):
     
     st.success(f"{name} さん、ようこそ！")
     
+    # LINEアカウント設定
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📱 LINEアカウント設定")
+    
+    current_line_account = get_line_account(username)
+    line_account = st.sidebar.text_input(
+        "LINE ID",
+        value=current_line_account,
+        help="LINE公式アカウントに送信する際のLINE IDを設定してください（例: U1234567890abcdef）"
+    )
+    
+    if st.sidebar.button("LINE IDを更新"):
+        if line_account:
+            success, message = add_line_account(username, line_account)
+            if success:
+                st.sidebar.success(message)
+                st.rerun()
+            else:
+                st.sidebar.error(message)
+        else:
+            st.sidebar.warning("LINE IDを入力してください。")
+    
+    if current_line_account:
+        st.sidebar.info(f"現在のLINE ID: {current_line_account}")
+    else:
+        st.sidebar.warning("LINE IDが設定されていません。")
+    
+    # LINE IDの確認方法を表示
+    with st.sidebar.expander("📋 LINE IDの確認方法"):
+        st.markdown("""
+        **LINE IDの確認方法:**
+        
+        1. **LINE公式アカウントに画像を送信**
+        2. **システムログでLINE IDを確認**
+        3. **上記のLINE IDを設定**
+        
+        **例:** `U1234567890abcdef`
+        """)
+    
+    # Webhook URL情報を表示（管理者のみ）
+    if is_admin(username):
+        with st.sidebar.expander("🔗 Webhook URL情報"):
+            if is_production():
+                st.markdown("""
+                **LINE公式アカウント設定（本番環境）:**
+                
+                1. **LINE Developersコンソール**にアクセス
+                2. **Messaging API**チャネルを選択
+                3. **Webhook URL**に以下を設定:
+                ```
+                https://agrilive-order-app.onrender.com/webhook/line
+                ```
+                4. **Webhookの利用**を有効にする
+                5. **イベントタイプ**で「メッセージ」「画像メッセージ」を有効にする
+                """)
+            else:
+                st.markdown("""
+                **LINE公式アカウント設定（ローカル環境）:**
+                
+                1. **LINE Developersコンソール**にアクセス
+                2. **Messaging API**チャネルを選択
+                3. **Webhook URL**に以下を設定:
+                ```
+                https://[ngrok-url]/webhook/line
+                ```
+                4. **Webhookの利用**を有効にする
+                5. **イベントタイプ**で「メッセージ」「画像メッセージ」を有効にする
+                
+                **ngrok URLはコンソールログで確認できます**
+                """)
+    
     # 管理者ダッシュボード
     try:
         if is_admin(username):
@@ -340,6 +835,27 @@ if st.session_state.get("authentication_status"):
             else:
                 st.info("ユーザーが登録されていません。")
             
+            # LINE注文データ情報
+            st.subheader("📱 LINE注文データ情報")
+            
+            all_line_orders = get_all_line_orders()
+            available_line_ids = get_available_line_ids()
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("総LINE注文数", len(all_line_orders))
+            with col2:
+                st.metric("登録LINE ID数", len(available_line_ids))
+            with col3:
+                processed_orders = [order for order in all_line_orders if order.get("processed", False)]
+                st.metric("処理済み注文数", len(processed_orders))
+            
+            # LINE ID一覧
+            if available_line_ids:
+                st.subheader("📋 登録済みLINE ID一覧")
+                for line_id in available_line_ids:
+                    st.code(line_id)
+            
             # システム情報
             st.subheader("⚙️ システム情報")
             col1, col2 = st.columns(2)
@@ -356,7 +872,7 @@ if st.session_state.get("authentication_status"):
     except Exception as e:
         st.error(f"管理者ダッシュボードエラー: {e}")
         # エラーが発生した場合は通常の機能を続行
-    
+
     # デバッグ用: 動的ユーザー情報の確認（開発時のみ表示）
     if not is_production():
         st.sidebar.markdown("---")
@@ -399,62 +915,173 @@ if st.session_state.get("authentication_status"):
         # 本番環境の場合 - APIキー情報は表示しない
         pass
 
-    st.subheader("注文データファイルのアップロード")
-    uploaded_files = st.file_uploader(
-        label="Infomart / IPORTER / PDF 等の注文データファイルをここにドラッグ＆ドロップまたは選択してください",
-        accept_multiple_files=True,
-        type=['txt', 'csv', 'xlsx', 'pdf']
-    )
-
-    # セッション状態で解析済みファイルとデータを管理
-    if 'processed_files' not in st.session_state:
-        st.session_state.processed_files = {}
-    if 'all_records' not in st.session_state:
-        st.session_state.all_records = []
+    # LINE注文データの表示
+    line_orders = get_line_orders_for_user(username)
+    if line_orders:
+        st.subheader("📱 LINE注文データ")
+        
+        # 未処理の注文のみを表示
+        unprocessed_orders = [order for order in line_orders if not order.get("processed", False)]
+        
+        if unprocessed_orders:
+            st.info(f"未処理のLINE注文が {len(unprocessed_orders)} 件あります。")
+            
+            for i, order in enumerate(unprocessed_orders):
+                with st.expander(f"📋 {order['sender_name']} - {order['order_date']} ({order['timestamp']})"):
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        # 画像を表示
+                        image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+                        if os.path.exists(image_path):
+                            st.image(image_path, caption=f"LINE注文画像", width=400)
+                        
+                        # 注文情報を表示
+                        st.write(f"**送信者**: {order['sender_name']}")
+                        st.write(f"**受信日**: {order['order_date']}")
+                        if order.get('message_text'):
+                            st.write(f"**メッセージ**: {order['message_text']}")
+                    
+                    with col2:
+                        # 解析ボタン
+                        if st.button(f"解析開始", key=f"parse_{order['timestamp']}"):
+                            try:
+                                with st.spinner("LINE注文を解析中..."):
+                                    # OpenAI APIで解析
+                                    parsed_data = parse_line_order_with_openai(
+                                        image_path, 
+                                        order['sender_name'], 
+                                        order.get('message_text', '')
+                                    )
+                                    
+                                    # 標準形式に変換
+                                    records = []
+                                    delivery_date = parsed_data.get("delivery_date", "")
+                                    items = parsed_data.get("items", [])
+                                    
+                                    for item in items:
+                                        record = {
+                                            "order_id": "",  # 伝票番号なし
+                                            "order_date": order['order_date'],
+                                            "delivery_date": delivery_date,
+                                            "partner_name": order['sender_name'],
+                                            "product_code": "",
+                                            "product_name": item.get("product_name", ""),
+                                            "quantity": item.get("quantity", ""),
+                                            "unit": item.get("unit", ""),
+                                            "unit_price": item.get("unit_price", ""),
+                                            "amount": item.get("amount", ""),
+                                            "remark": item.get("remark", ""),
+                                            "data_source": f"LINE注文_{order['timestamp']}"
+                                        }
+                                        records.append(record)
+                                    
+                                    # 注文を処理済みにマーク
+                                    orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+                                    with open(orders_file, "r", encoding="utf-8") as f:
+                                        all_orders = json.load(f)
+                                    
+                                    for order_item in all_orders:
+                                        if order_item['timestamp'] == order['timestamp']:
+                                            order_item['processed'] = True
+                                            break
+                                    
+                                    with open(orders_file, "w", encoding="utf-8") as f:
+                                        json.dump(all_orders, f, ensure_ascii=False, indent=4)
+                                    
+                                    st.success("LINE注文の解析が完了しました！")
+                                    st.rerun()
+                                    
+                            except Exception as e:
+                                st.error(f"LINE注文解析エラー: {e}")
+                        
+                        # 削除ボタン
+                        if st.button(f"削除", key=f"delete_{order['timestamp']}"):
+                            # 注文データを削除
+                            orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+                            with open(orders_file, "r", encoding="utf-8") as f:
+                                all_orders = json.load(f)
+                            
+                            all_orders = [o for o in all_orders if o['timestamp'] != order['timestamp']]
+                            
+                            with open(orders_file, "w", encoding="utf-8") as f:
+                                json.dump(all_orders, f, ensure_ascii=False, indent=4)
+                            
+                            # 画像ファイルも削除
+                            if os.path.exists(image_path):
+                                os.remove(image_path)
+                            
+                            st.success("LINE注文を削除しました。")
+                            st.rerun()
+        else:
+            st.info("未処理のLINE注文はありません。")
     
-    new_records = []
+    st.subheader("注文データファイルのアップロード")
+    
+    # PDF画像表示設定
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        uploaded_files = st.file_uploader(
+            label="Infomart / IPORTER / PDF 等の注文データファイルをここにドラッグ＆ドロップまたは選択してください",
+            accept_multiple_files=True,
+            type=['txt', 'csv', 'xlsx', 'pdf']
+        )
+    with col2:
+        show_pdf_images = st.checkbox("PDF画像を表示", value=True, help="PDFファイルの画像を表示するかどうかを設定します")
+
+    records = []
     debug_details = []
+    
+    # LINE注文データをrecordsに追加
+    line_orders = get_line_orders_for_user(username)
+    processed_line_orders = [order for order in line_orders if order.get("processed", False)]
+    
+    for order in processed_line_orders:
+        # 処理済みのLINE注文データをrecordsに追加
+        image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+        if os.path.exists(image_path):
+            try:
+                # OpenAI APIで解析済みデータを取得
+                parsed_data = parse_line_order_with_openai(
+                    image_path, 
+                    order['sender_name'], 
+                    order.get('message_text', '')
+                )
+                
+                delivery_date = parsed_data.get("delivery_date", "")
+                items = parsed_data.get("items", [])
+                
+                for item in items:
+                    record = {
+                        "order_id": "",  # 伝票番号なし
+                        "order_date": order['order_date'],
+                        "delivery_date": delivery_date,
+                        "partner_name": order['sender_name'],
+                        "product_code": "",
+                        "product_name": item.get("product_name", ""),
+                        "quantity": item.get("quantity", ""),
+                        "unit": item.get("unit", ""),
+                        "unit_price": item.get("unit_price", ""),
+                        "amount": item.get("amount", ""),
+                        "remark": item.get("remark", ""),
+                        "data_source": f"LINE注文_{order['timestamp']}"
+                    }
+                    records.append(record)
+            except Exception as e:
+                st.warning(f"LINE注文データの読み込みに失敗: {e}")
     if uploaded_files:
         for file in uploaded_files:
             filename = file.name
-            
-            # ファイルのハッシュ値を計算して重複チェック
-            import hashlib
-            file_hash = hashlib.md5(content := file.read()).hexdigest()
-            
-            # 既に解析済みのファイルかチェック
-            if filename in st.session_state.processed_files:
-                stored_hash = st.session_state.processed_files[filename]['hash']
-                if stored_hash == file_hash:
-                    st.info(f"📋 {filename} は既に解析済みです。データを保持します。")
-                    # 既存のデータを取得
-                    existing_records = [r for r in st.session_state.all_records if r.get('data_source') == filename]
-                    if existing_records:
-                        new_records.extend(existing_records)
-                    continue
-                else:
-                    st.info(f"🔄 {filename} の内容が変更されました。再解析します。")
-                    # 古いデータを削除
-                    st.session_state.all_records = [r for r in st.session_state.all_records if r.get('data_source') != filename]
-            
-            # 解析開始前にファイル情報を記録
-            st.session_state.processed_files[filename] = {
-                'hash': file_hash,
-                'processed_at': datetime.datetime.now().isoformat()
-            }
+            content = file.read()
 
             if filename.lower().endswith((".txt", ".csv")):
                 filetype, detected_enc, debug_log = detect_csv_type(content)
                 debug_details.append(f"【{filename}】\n" + "\n".join(debug_log))
                 file_like = io.BytesIO(content)
                 if filetype == 'infomart':
-                    file_records = parse_infomart(file_like, filename)
-                    new_records.extend(file_records)
-                    st.session_state.all_records.extend(file_records)
+                    records += parse_infomart(file_like, filename)
                 elif filetype == 'iporter':
-                    file_records = parse_iporter(file_like, filename)
-                    new_records.extend(file_records)
-                    st.session_state.all_records.extend(file_records)
+                    records += parse_iporter(file_like, filename)
                 else:
                     st.warning(f"{filename} は未対応のフォーマットです")
 
@@ -463,15 +1090,20 @@ if st.session_state.get("authentication_status"):
                     df_excel = pd.read_excel(io.BytesIO(content), sheet_name=0, header=None)
                     if df_excel.shape[0] > 5 and str(df_excel.iloc[4, 1]).strip() == "伝票番号":
                         file_like = io.BytesIO(content)
-                        file_records = parse_mitsubishi(file_like, filename)
-                        new_records.extend(file_records)
-                        st.session_state.all_records.extend(file_records)
+                        records += parse_mitsubishi(file_like, filename)
                     else:
                         st.warning(f"{filename} は未対応のExcelフォーマットです")
                 except Exception as e:
                     st.error(f"{filename} の読み込みに失敗しました: {e}")
             
             elif filename.lower().endswith(".pdf"):
+                # PDF画像の抽出と表示
+                if show_pdf_images:
+                    pdf_images = extract_pdf_images(content)
+                    if pdf_images:
+                        display_pdf_images(pdf_images, filename)
+                
+                # PDF解析の実行
                 try:
                     with st.spinner(f"{filename} を解析中..."):
                         # APIキーの事前確認
@@ -485,65 +1117,12 @@ if st.session_state.get("authentication_status"):
                             st.error(f"APIキー取得エラー: {api_error}")
                             continue
                         
-                        # enhanced版PDF解析を優先して試行
-                        pdf_records = []
-                        enhanced_success = False
-                        enhanced_confidence = 0.0
-                        
-                        try:
-                            with st.spinner("🔄 enhanced版PDF解析を試行中..."):
-                                enhanced_records = parse_pdf_enhanced(content, filename)
-                            
-                            if enhanced_records:
-                                # 信頼度を計算
-                                confidence_records = [r for r in enhanced_records if r.get('confidence') is not None]
-                                if confidence_records:
-                                    enhanced_confidence = sum(r.get('confidence', 0) for r in confidence_records) / len(confidence_records)
-                                
-                                # 信頼度が0.5以上の場合のみenhanced版を成功として扱う
-                                if enhanced_confidence >= 0.5:
-                                    new_records.extend(enhanced_records)
-                                    st.session_state.all_records.extend(enhanced_records)
-                                    enhanced_success = True
-                                    
-                                    if enhanced_confidence >= 0.8:
-                                        st.success(f"✅ {filename} の解析が完了しました（enhanced版 - 信頼度: {enhanced_confidence:.2f}）")
-                                    else:
-                                        st.warning(f"⚠️ {filename} の解析が完了しました（enhanced版 - 信頼度: {enhanced_confidence:.2f} - 要確認）")
-                                    
-                                    # レイアウト情報の表示
-                                    layout_records = [r for r in enhanced_records if r.get('product_name') == 'レイアウト情報']
-                                    if layout_records:
-                                        layout_info = layout_records[0].get('remark', '')
-                                        st.info(f"📋 レイアウト検知結果: {layout_info}")
-                                    
-                                    # 代替解釈の表示
-                                    alternatives_records = [r for r in enhanced_records if r.get('alternatives')]
-                                    if alternatives_records:
-                                        st.info("💡 代替解釈が提示されています。詳細を確認してください。")
-                                else:
-                                    st.warning(f"⚠️ enhanced版の信頼度が低いため（{enhanced_confidence:.2f}）、従来版を試行します")
-                                
-                        except Exception as enhanced_error:
-                            st.error(f"❌ enhanced版PDF解析に失敗: {enhanced_error}")
-                        
-                        # enhanced版が失敗した場合、または信頼度が低い場合、従来のPDF解析を試行
-                        if not enhanced_success:
-                            try:
-                                with st.spinner("🔄 従来版PDF解析を試行中..."):
-                                    pdf_records = parse_pdf_handwritten(content, filename)
-                                new_records.extend(pdf_records)
-                                st.session_state.all_records.extend(pdf_records)
-                                st.success(f"✅ {filename} の解析が完了しました（従来版）")
-                            except Exception as pdf_error:
-                                st.error(f"❌ 従来のPDF解析にも失敗: {pdf_error}")
-                                st.error("❌ PDF解析に失敗しました。ファイルの形式を確認してください。")
-                        
+                        pdf_records = parse_pdf_handwritten(content, filename)
+                        records += pdf_records
                         # 商品情報の抽出状況を確認
-                        final_pdf_records = [r for r in new_records if r.get('data_source') == filename]
-                        if final_pdf_records and final_pdf_records[0].get('product_name') == "商品情報なし":
-                            st.warning("⚠️ 商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
-                    
+                        if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
+                            st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
+                    st.success(f"{filename} の解析が完了しました")
                 except Exception as e:
                     st.error(f"{filename} の解析に失敗しました: {e}")
                     st.error(f"詳細エラー: {str(e)}")
@@ -554,97 +1133,30 @@ if st.session_state.get("authentication_status"):
                         st.info("2. アプリケーションを再デプロイして環境変数を反映")
                         st.info("3. Renderのログで詳細なエラー情報を確認")
     
-    # すべてのレコード（既存+新規）を使用
-    records = st.session_state.all_records
-    
     # レコードが存在する場合（空でも表示）
     if records:        
         df = pd.DataFrame(records)
-        
-        # 統計情報の表示
-        st.markdown("---")
-        st.subheader("📊 解析結果統計")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("総レコード数", len(df))
-        
-        with col2:
-            # PDFレコード数を計算
-            pdf_records = [r for r in records if r.get('data_source', '').lower().endswith('.pdf')]
-            st.metric("内、PDFレコード数", len(pdf_records))
-        
-        with col3:
-            # PDFデータの場合のみ信頼度を計算、それ以外は0
-            if pdf_records:
-                high_confidence = len([r for r in records if r.get('confidence', 0) >= 0.8])
-                st.metric("高信頼度レコード", high_confidence)
-            else:
-                st.metric("高信頼度レコード", 0)
-        
-        with col4:
-            # PDFデータの場合のみ信頼度を計算、それ以外は0
-            if pdf_records:
-                low_confidence = len([r for r in records if r.get('confidence', 0) < 0.5])
-                st.metric("要確認レコード", low_confidence)
-            else:
-                st.metric("要確認レコード", 0)
         
         # 空行除外の条件を緩和（商品名または備考に値がある場合は表示）
         if not df.empty:
             # 商品名または備考に値がある行のみを保持
             df = df[df['product_name'].notna() | df['remark'].notna()]
         
-        def color_confidence(val):
-            """
-            信頼度に基づいて色分けする関数
-            """
-            try:
-                confidence = float(val)
-                if confidence >= 0.8:
-                    return 'background-color: #d4edda'  # 緑（高信頼度）
-                elif confidence >= 0.5:
-                    return 'background-color: #fff3cd'  # 黄（中信頼度）
-                else:
-                    return 'background-color: #f8d7da'  # 赤（低信頼度）
-            except:
-                return ''
-
         if not df.empty:
-            # 信頼度情報がある場合は追加
-            if 'confidence' in df.columns:
-                columns = [
-                    "order_id", "order_date", "delivery_date", "partner_name",
-                    "product_code", "product_name", "quantity", "unit", "unit_price", "amount", "remark", "data_source", "confidence"
-                ]
-                df = df.reindex(columns=columns)
-                df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元", "信頼度"]
-                
-                # 信頼度で色分けして表示
-                styled_df = df.style.applymap(color_confidence, subset=['信頼度'])
-                edited_df = st.data_editor(
-                    styled_df,
-                    use_container_width=True,
-                    num_rows="dynamic",
-                    key="editor",
-                    hide_index=True
-                )
-            else:
-                columns = [
-                    "order_id", "order_date", "delivery_date", "partner_name",
-                    "product_code", "product_name", "quantity", "unit", "unit_price", "amount", "remark", "data_source"
-                ]
-                df = df.reindex(columns=columns)
-                df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
-                
-                edited_df = st.data_editor(
-                    df,
-                    use_container_width=True,
-                    num_rows="dynamic",
-                    key="editor",
-                    hide_index=True
-                )
+            columns = [
+                "order_id", "order_date", "delivery_date", "partner_name",
+                "product_code", "product_name", "quantity", "unit", "unit_price", "amount", "remark", "data_source"
+            ]
+            df = df.reindex(columns=columns)
+            df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
+
+            edited_df = st.data_editor(
+                df,
+                use_container_width=True,
+                num_rows="dynamic",
+                key="editor",
+                hide_index=True
+            )
         else:
             st.warning("表示可能なデータがありません。商品情報の抽出に失敗した可能性があります。")
 
@@ -653,19 +1165,12 @@ if st.session_state.get("authentication_status"):
 
         edited_df["数量"] = pd.to_numeric(edited_df["数量"], errors="coerce").fillna(0)
 
-        # 信頼度列がある場合は数値として処理
-        if "信頼度" in edited_df.columns:
-            edited_df["信頼度"] = pd.to_numeric(edited_df["信頼度"], errors="coerce").fillna(0)
-
         df_sorted = edited_df.sort_values(
             by=["商品名", "納品日", "発注日"], na_position="last"
         )
 
-        # 集計時は信頼度列を除外
-        df_for_agg = df_sorted.drop(columns=["信頼度"]) if "信頼度" in df_sorted.columns else df_sorted
-        
         df_agg = (
-            df_for_agg
+            df_sorted
             .groupby(["商品名", "備考", "単位"], dropna=False, as_index=False)
             .agg({"数量": "sum"})
         )
@@ -673,7 +1178,7 @@ if st.session_state.get("authentication_status"):
         df_agg = df_agg.sort_values(by=["商品名"])
         output = io.BytesIO()
         jst = pytz.timezone("Asia/Tokyo")
-        now_str = datetime.datetime.now(jst).strftime("%y%m%d_%H%M")
+        now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
 
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             workbook = writer.book

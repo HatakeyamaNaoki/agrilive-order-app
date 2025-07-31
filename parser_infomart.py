@@ -51,6 +51,5 @@ def parse_infomart(file_buffer, filename):
             "amount": row[idx_total_price],
             "remark": row[idx_remark],
             "data_source": filename,   # ファイル名を記録
-            "confidence": 1.0,         # 構造化データなので高信頼度
         })
     return orders

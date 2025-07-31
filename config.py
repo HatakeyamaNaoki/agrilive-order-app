@@ -19,10 +19,10 @@ def get_openai_api_key():
         
         # まず環境変数として試行
         api_key = (os.getenv('OPENAI_API_KEY') or 
-                  os.getenv('OPENAI_API_KEY_SECRET') or
-                  os.getenv('OPENAI_API_KEY_SECRETS') or
-                  os.getenv('OPENAI_API_KEY_RENDER') or
-                  os.getenv('OPENAI_API_KEY_SECRETS_FILE'))
+            os.getenv('OPENAI_API_KEY_SECRET') or
+            os.getenv('OPENAI_API_KEY_SECRETS') or
+            os.getenv('OPENAI_API_KEY_RENDER') or
+            os.getenv('OPENAI_API_KEY_SECRETS_FILE'))
         
         print(f"環境変数からのAPIキー存在: {bool(api_key)}")
         
@@ -57,7 +57,7 @@ def get_openai_api_key():
         
         # すべての環境変数を確認（機密情報は隠す）
         all_env_vars = {k: '***' if 'KEY' in k or 'SECRET' in k or 'PASSWORD' in k else v 
-                       for k, v in os.environ.items()}
+            for k, v in os.environ.items()}
         print(f"利用可能な環境変数: {all_env_vars}")
         
         if not api_key:
