@@ -17,8 +17,6 @@ from PIL import Image
 import base64
 import os
 from datetime import datetime, timezone, timedelta
-import threading
-from flask import Flask, request, jsonify
 import requests
 
 # LINE注文データ管理用のディレクトリ
@@ -26,142 +24,7 @@ LINE_ORDERS_DIR = "line_orders"
 if not os.path.exists(LINE_ORDERS_DIR):
     os.makedirs(LINE_ORDERS_DIR)
 
-# Flask Webhookアプリを作成
-webhook_app = Flask(__name__)
 
-@webhook_app.route('/webhook/line', methods=['POST'])
-def line_webhook():
-    """LINE公式アカウントからのWebhookを受信"""
-    try:
-        # LINEからのリクエストを処理
-        data = request.get_json()
-        print(f"LINE Webhook受信: {data}")
-        
-        # メッセージイベントを処理
-        if data.get('events'):
-            for event in data['events']:
-                if event['type'] == 'message':
-                    # 画像メッセージの場合
-                    if event['message']['type'] == 'image':
-                        # 送信者情報を取得
-                        sender_id = event['source']['userId']
-                        line_channel_access_token = get_line_channel_access_token()
-                        
-                        if line_channel_access_token:
-                            # LINE APIで送信者のプロフィール情報を取得
-                            headers = {
-                                'Authorization': f'Bearer {line_channel_access_token}'
-                            }
-                            
-                            # 送信者名を取得
-                            profile_response = requests.get(
-                                f'https://api.line.me/v2/bot/profile/{sender_id}',
-                                headers=headers
-                            )
-                            
-                            if profile_response.status_code == 200:
-                                profile_data = profile_response.json()
-                                sender_name = profile_data.get('displayName', 'LINE送信者')
-                                print(f"送信者情報: {sender_name} ({sender_id})")
-                            else:
-                                sender_name = "LINE送信者"
-                                print(f"送信者情報取得エラー: {profile_response.status_code}")
-                            
-                            # 画像を取得
-                            message_id = event['message']['id']
-                            image_response = requests.get(
-                                f'https://api-data.line.me/v2/bot/message/{message_id}/content',
-                                headers=headers
-                            )
-                            
-                            if image_response.status_code == 200:
-                                image_data = image_response.content
-                                print(f"画像取得成功: {len(image_data)} bytes")
-                                
-                                # 注文データを保存
-                                success, message = save_line_order_data(
-                                    sender_id,  # LINEアカウントID
-                                    sender_name,
-                                    image_data,
-                                    ""  # メッセージテキスト
-                                )
-                                
-                                if success:
-                                    print(f"✅ LINE注文データを保存しました: {message}")
-                                    # 成功レスポンスをLINEに返す
-                                    return jsonify({'status': 'ok', 'message': '注文データを受信しました'})
-                                else:
-                                    print(f"❌ LINE注文データ保存エラー: {message}")
-                                    return jsonify({'status': 'error', 'message': message}), 500
-                            else:
-                                print(f"❌ LINE画像取得エラー: {image_response.status_code}")
-                                return jsonify({'status': 'error', 'message': '画像の取得に失敗しました'}), 500
-                        else:
-                            print("❌ LINE_CHANNEL_ACCESS_TOKENが設定されていません")
-                            return jsonify({'status': 'error', 'message': '設定エラー'}), 500
-        
-        return jsonify({'status': 'ok'})
-        
-    except Exception as e:
-        print(f"❌ LINE Webhook処理エラー: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-@webhook_app.route('/health', methods=['GET'])
-def health_check():
-    """ヘルスチェック用エンドポイント"""
-    return jsonify({'status': 'healthy', 'service': 'line-webhook'})
-
-# Webhookサーバー起動を無効化（ポート競合を避けるため）
-if is_production():
-    print("🌐 Webhookサーバー起動を無効化しています（手動アップロード機能をご利用ください）")
-    print(f"🌐 Webhook URL: https://agrilive-order-app.onrender.com/webhook/line")
-
-def add_line_account(email, line_account):
-    """
-    LINEアカウント情報を追加・更新
-    """
-    try:
-        dynamic_users = load_dynamic_users()
-        
-        if email in dynamic_users.get("users", {}):
-            dynamic_users["users"][email]["line_account"] = line_account
-        else:
-            # 基本ユーザーにもLINEアカウント情報を追加
-            base_credentials = load_credentials()
-            if email in base_credentials["credentials"]["usernames"]:
-                base_credentials["credentials"]["usernames"][email]["line_account"] = line_account
-                # 基本認証情報を保存（ローカル環境の場合）
-                if not is_production():
-                    with open("credentials.json", "w", encoding="utf-8") as f:
-                        json.dump(base_credentials, f, ensure_ascii=False, indent=4)
-        
-        # 動的ユーザー情報を保存
-        if save_dynamic_users(dynamic_users):
-            return True, "LINEアカウント情報を更新しました。"
-        else:
-            return False, "LINEアカウント情報の保存に失敗しました。"
-    except Exception as e:
-        return False, f"LINEアカウント情報更新エラー: {e}"
-
-def get_line_account(email):
-    """
-    ユーザーのLINEアカウント情報を取得
-    """
-    try:
-        # 動的ユーザーから確認
-        dynamic_users = load_dynamic_users()
-        if email in dynamic_users.get("users", {}):
-            return dynamic_users["users"][email].get("line_account", "")
-        
-        # 基本ユーザーから確認
-        base_credentials = load_credentials()
-        if email in base_credentials["credentials"]["usernames"]:
-            return base_credentials["credentials"]["usernames"][email].get("line_account", "")
-        
-        return ""
-    except Exception as e:
-        print(f"LINEアカウント取得エラー: {e}")
-        return ""
 
 def save_line_order_data(line_account, sender_name, image_data, message_text=""):
     """
@@ -220,19 +83,11 @@ def get_line_orders_for_user(email):
             all_orders = json.load(f)
         
         print(f"📊 全注文データ数: {len(all_orders)}")
+        print(f"👤 ユーザー: {email}")
         
-        # ユーザーのLINE IDを取得
-        user_line_id = get_line_account(email)
-        print(f"👤 ユーザー: {email}, LINE ID: {user_line_id}")
-        
-        # LINE IDでフィルタ（公式アカウント経由の場合）
-        if user_line_id:
-            user_orders = [order for order in all_orders if order.get("line_account") == user_line_id]
-            print(f"🔍 LINE IDでフィルタ: {len(user_orders)}件")
-        else:
-            # LINE IDが設定されていない場合は、ユーザー名で直接フィルタ（手動アップロード用）
-            user_orders = [order for order in all_orders if order.get("line_account") == email]
-            print(f"🔍 ユーザー名でフィルタ: {len(user_orders)}件")
+        # ユーザー名で直接フィルタ（手動アップロード用）
+        user_orders = [order for order in all_orders if order.get("line_account") == email]
+        print(f"🔍 ユーザー名でフィルタ: {len(user_orders)}件")
         
         # デバッグ: 全注文データの詳細を表示
         for i, order in enumerate(all_orders):
@@ -260,22 +115,7 @@ def get_all_line_orders():
         print(f"全LINE注文データ取得エラー: {e}")
         return []
 
-def get_available_line_ids():
-    """
-    システムに登録されているLINE IDの一覧を取得
-    """
-    try:
-        orders = get_all_line_orders()
-        line_ids = set()
-        
-        for order in orders:
-            if order.get("line_account"):
-                line_ids.add(order["line_account"])
-        
-        return list(line_ids)
-    except Exception as e:
-        print(f"LINE ID一覧取得エラー: {e}")
-        return []
+
 
 def delete_processed_line_orders():
     """
@@ -670,104 +510,6 @@ if st.button("🔄 データを更新", key="refresh_data"):
 st.image("会社ロゴ.png", width=220)
 st.title("受発注データ集計アプリ（アグリライブ）")
 
-# LINE公式アカウントWebhook情報表示
-def show_webhook_info():
-    """
-    LINE公式アカウントWebhook情報を表示
-    """
-    import streamlit as st
-    
-    if is_production():
-        # 現在のアプリのWebhook URL
-        webhook_url = "https://agrilive-order-app.onrender.com/webhook/line"
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("🔗 LINE Webhook URL")
-        st.sidebar.code(webhook_url)
-        st.sidebar.info("このURLをLINE公式アカウントのWebhook設定に設定してください")
-        
-        # ヘルスチェック
-        try:
-            import requests
-            health_url = "https://agrilive-order-app.onrender.com/health"
-            response = requests.get(health_url, timeout=5)
-            if response.status_code == 200:
-                st.sidebar.success("✅ Webhookサーバー稼働中")
-            else:
-                st.sidebar.warning("⚠️ Webhookサーバー応答なし")
-        except:
-            st.sidebar.warning("⚠️ Webhookサーバー接続エラー")
-        
-        # LINE設定情報
-        try:
-            line_token = get_line_channel_access_token()
-            st.sidebar.success("✅ LINE_CHANNEL_ACCESS_TOKEN設定済み")
-            # トークンの一部を表示（セキュリティのため）
-            token_preview = line_token[:10] + "..." + line_token[-10:] if len(line_token) > 20 else "***"
-            st.sidebar.info(f"トークン: {token_preview}")
-        except Exception as e:
-            st.sidebar.error(f"❌ LINE_CHANNEL_ACCESS_TOKEN未設定: {e}")
-        
-        # 最近の受信状況
-        try:
-            orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
-            if os.path.exists(orders_file):
-                with open(orders_file, "r", encoding="utf-8") as f:
-                    all_orders = json.load(f)
-                
-                # 最近24時間の受信を確認
-                from datetime import datetime, timedelta
-                now = datetime.now()
-                recent_orders = []
-                
-                for order in all_orders:
-                    try:
-                        order_time = datetime.strptime(order['timestamp'], "%Y%m%d_%H%M%S")
-                        if now - order_time < timedelta(hours=24):
-                            recent_orders.append(order)
-                    except:
-                        continue
-                
-                if recent_orders:
-                    st.sidebar.success(f"✅ 過去24時間で {len(recent_orders)} 件受信")
-                    for order in recent_orders[-3:]:  # 最新3件を表示
-                        st.sidebar.info(f"📋 {order['sender_name']} - {order['order_date']}")
-                else:
-                    st.sidebar.info("📭 過去24時間の受信なし")
-            else:
-                st.sidebar.info("📭 まだ受信データなし")
-        except Exception as e:
-            st.sidebar.error(f"受信状況確認エラー: {e}")
-        
-        # LINE注文データの自動更新
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("📱 LINE注文データ")
-        
-        # 最新のLINE注文データを表示
-        line_orders = get_line_orders_for_user(username)
-        if line_orders:
-            st.sidebar.success(f"📱 LINE注文データ: {len(line_orders)}件")
-            latest_orders = sorted(line_orders, key=lambda x: x['timestamp'], reverse=True)[:3]
-            for order in latest_orders:
-                with st.sidebar.expander(f"📋 {order['sender_name']} - {order['order_date']}"):
-                    st.write(f"**送信者**: {order['sender_name']}")
-                    st.write(f"**受信日**: {order['order_date']}")
-                    if order.get('processed', False):
-                        st.success("✅ 処理済み")
-                    else:
-                        st.warning("⏳ 未処理")
-                    
-                    # 削除ボタン
-                    if st.sidebar.button(f"🗑️ 削除", key=f"sidebar_delete_{order['timestamp']}"):
-                        success, message = delete_line_order_by_timestamp(order['timestamp'])
-                        if success:
-                            st.sidebar.success(message)
-                            st.rerun()
-                        else:
-                            st.sidebar.error(message)
-        else:
-            st.sidebar.info("LINE注文データはありません")
-            st.sidebar.info(f"ユーザー: {username}")
-
 # --- サイドバー ---
 if not st.session_state.get("authentication_status"):
     st.sidebar.markdown("---")
@@ -834,48 +576,39 @@ if st.session_state.get("authentication_status"):
     
     st.success(f"{name} さん、ようこそ！")
     
-    # LINEアカウント設定
+    # LINE注文データの表示
     st.sidebar.markdown("---")
-    st.sidebar.subheader("📱 LINEアカウント設定")
+    st.sidebar.subheader("📱 LINE注文データ")
     
-    current_line_account = get_line_account(username)
-    line_account = st.sidebar.text_input(
-        "LINE ID",
-        value=current_line_account,
-        help="LINE公式アカウントに送信する際のLINE IDを設定してください（例: U1234567890abcdef）"
-    )
+    # LINE注文データの表示（全ユーザー）
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📱 LINE注文データ")
     
-    if st.sidebar.button("LINE IDを更新"):
-        if line_account:
-            success, message = add_line_account(username, line_account)
-            if success:
-                st.sidebar.success(message)
-                st.rerun()
-            else:
-                st.sidebar.error(message)
-        else:
-            st.sidebar.warning("LINE IDを入力してください。")
-    
-    if current_line_account:
-        st.sidebar.info(f"現在のLINE ID: {current_line_account}")
+    # 最新のLINE注文データを表示
+    line_orders = get_line_orders_for_user(username)
+    if line_orders:
+        st.sidebar.success(f"📱 LINE注文データ: {len(line_orders)}件")
+        latest_orders = sorted(line_orders, key=lambda x: x['timestamp'], reverse=True)[:3]
+        for order in latest_orders:
+            with st.sidebar.expander(f"📋 {order['sender_name']} - {order['order_date']}"):
+                st.write(f"**送信者**: {order['sender_name']}")
+                st.write(f"**受信日**: {order['order_date']}")
+                if order.get('processed', False):
+                    st.success("✅ 処理済み")
+                else:
+                    st.warning("⏳ 未処理")
+                
+                # 削除ボタン
+                if st.sidebar.button(f"🗑️ 削除", key=f"sidebar_delete_{order['timestamp']}"):
+                    success, message = delete_line_order_by_timestamp(order['timestamp'])
+                    if success:
+                        st.sidebar.success(message)
+                        st.rerun()
+                    else:
+                        st.sidebar.error(message)
     else:
-        st.sidebar.warning("LINE IDが設定されていません。")
-    
-    # LINE IDの確認方法を表示
-    with st.sidebar.expander("📋 LINE IDの確認方法"):
-        st.markdown("""
-        **LINE IDの確認方法:**
-        
-        1. **LINE公式アカウントに画像を送信**
-        2. **システムログでLINE IDを確認**
-        3. **上記のLINE IDを設定**
-        
-        **例:** `U1234567890abcdef`
-        """)
-    
-    # Webhook情報を表示（管理者のみ）
-    if is_admin(username):
-        show_webhook_info()
+        st.sidebar.info("LINE注文データはありません")
+        st.sidebar.info(f"ユーザー: {username}")
     
     # 管理者ダッシュボード
     try:
@@ -937,14 +670,11 @@ if st.session_state.get("authentication_status"):
             st.subheader("📱 LINE注文データ情報")
             
             all_line_orders = get_all_line_orders()
-            available_line_ids = get_available_line_ids()
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
                 st.metric("総LINE注文数", len(all_line_orders))
             with col2:
-                st.metric("登録LINE ID数", len(available_line_ids))
-            with col3:
                 processed_orders = [order for order in all_line_orders if order.get("processed", False)]
                 st.metric("処理済み注文数", len(processed_orders))
             
@@ -957,12 +687,6 @@ if st.session_state.get("authentication_status"):
                         st.rerun()
                     else:
                         st.error(message)
-            
-            # LINE ID一覧
-            if available_line_ids:
-                st.subheader("📋 登録済みLINE ID一覧")
-                for line_id in available_line_ids:
-                    st.code(line_id)
             
             # システム情報
             st.subheader("⚙️ システム情報")
@@ -1065,6 +789,13 @@ if st.session_state.get("authentication_status"):
                     try:
                         # 画像データを保存
                         image_data = uploaded_line_image.read()
+                        
+                        # デバッグ情報を表示
+                        st.info(f"デバッグ情報:")
+                        st.info(f"- ユーザー名: {username}")
+                        st.info(f"- 送信者名: {sender_name or '不明'}")
+                        st.info(f"- 画像サイズ: {len(image_data)} bytes")
+                        
                         success, message = save_line_order_data(
                             username,  # ユーザー名をLINEアカウントIDとして使用
                             sender_name or "不明",
@@ -1075,6 +806,17 @@ if st.session_state.get("authentication_status"):
                         if success:
                             st.success("LINE注文データを保存しました！")
                             st.info(f"保存されたデータ: 送信者={sender_name or '不明'}, ユーザー={username}")
+                            
+                            # 保存後のデータ確認
+                            st.info("保存後のデータ確認:")
+                            orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+                            if os.path.exists(orders_file):
+                                with open(orders_file, "r", encoding="utf-8") as f:
+                                    all_orders = json.load(f)
+                                st.info(f"- 全注文データ数: {len(all_orders)}")
+                                for i, order in enumerate(all_orders[-3:]):  # 最新3件
+                                    st.info(f"- 注文{i+1}: line_account={order.get('line_account')}, sender_name={order.get('sender_name')}")
+                            
                             # 3秒間待機してからページを再読み込み
                             import time
                             time.sleep(3)
@@ -1087,6 +829,11 @@ if st.session_state.get("authentication_status"):
     
     # 既存のLINE注文データ表示
     if line_orders:
+        # デバッグ情報を表示
+        st.info(f"デバッグ情報:")
+        st.info(f"- 取得されたLINE注文データ: {len(line_orders)}件")
+        st.info(f"- 現在のユーザー: {username}")
+        
         # 未処理の注文のみを表示
         unprocessed_orders = [order for order in line_orders if not order.get("processed", False)]
         
