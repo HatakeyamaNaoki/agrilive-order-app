@@ -5,12 +5,12 @@ import pandas as pd
 import io
 import datetime
 import pytz
-from config import get_openai_api_key, is_production
-from config_loader import load_config
+from config import get_openai_api_key, is_production, load_config
 from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
 from parser_mitsubishi import parse_mitsubishi
 from parser_pdf import parse_pdf_handwritten
+from prompt_line import get_line_order_prompt
 from docx import Document
 import pdfplumber
 from PIL import Image
@@ -266,43 +266,7 @@ def parse_line_order_with_openai(image_path, sender_name, message_text=""):
             image_data = base64.b64encode(image_file.read()).decode('utf-8')
         
         # システムプロンプト
-        system_prompt = """
-あなたはLINE注文の構造化データ抽出の専門家です。LINEの注文スクリーンショットから以下の情報をJSON形式で正確に抽出してください。
-
-【抽出する項目】
-- 納品日（LINEのメッセージ内に記載。YYYY/MM/DD形式で出力。なければ空文字列）
-- 商品リスト（items配列として出力）
-    - 商品名（必須、LINEのメッセージ内に記載）
-    - 数量（必須、数字のみ）
-    - 単位（必須。例: kg, p, L, 本, 束, 箱, ケース, 袋, パック, ボックス など）
-    - 単価（なければ空文字列）
-    - 金額（なければ空文字列）
-    - 備考（LINEのメッセージ内に記載。なければ空文字列）
-
-【出力形式】
-必ず下記のJSON構造で返してください。
-
-{
-  "delivery_date": "",
-  "items": [
-    {
-      "product_name": "",
-      "quantity": "",
-      "unit": "",
-      "unit_price": "",
-      "amount": "",
-      "remark": ""
-    }
-  ]
-}
-
-【重要な指示】
-- 手書き文字は一字一句正確に読み取ることを心がけてください。
-- 商品名・数量は必ず抽出してください。
-- 項目が見つからない場合は空文字列で出力してください。
-- 数量や単価・金額は数字のみで出力してください（単位はunit欄に分離）。
-- JSON以外の出力や説明は不要です。
-"""
+        system_prompt = get_line_order_prompt()
         
         # OpenAI APIを呼び出し
         response = client.chat.completions.create(
@@ -1002,11 +966,11 @@ if st.session_state.get("authentication_status"):
                                     
                                     for item in items:
                                         record = {
-                                            "order_id": "",  # 伝票番号なし
-                                            "order_date": order['order_date'],
+                                            "order_id": item.get("order_id", ""),
+                                            "order_date": parsed_data.get("order_date", order['order_date']),
                                             "delivery_date": delivery_date,
-                                            "partner_name": order['sender_name'],
-                                            "product_code": "",
+                                            "partner_name": parsed_data.get("partner_name", order['sender_name']),
+                                            "product_code": item.get("product_code", ""),
                                             "product_name": item.get("product_name", ""),
                                             "quantity": item.get("quantity", ""),
                                             "unit": item.get("unit", ""),
@@ -1096,11 +1060,11 @@ if st.session_state.get("authentication_status"):
                 
                 for item in items:
                     record = {
-                        "order_id": "",  # 伝票番号なし
-                        "order_date": order['order_date'],
+                        "order_id": item.get("order_id", ""),
+                        "order_date": parsed_data.get("order_date", order['order_date']),
                         "delivery_date": delivery_date,
-                        "partner_name": order['sender_name'],
-                        "product_code": "",
+                        "partner_name": parsed_data.get("partner_name", order['sender_name']),
+                        "product_code": item.get("product_code", ""),
                         "product_name": item.get("product_name", ""),
                         "quantity": item.get("quantity", ""),
                         "unit": item.get("unit", ""),
