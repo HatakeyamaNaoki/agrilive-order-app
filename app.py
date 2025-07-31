@@ -24,8 +24,6 @@ LINE_ORDERS_DIR = "line_orders"
 if not os.path.exists(LINE_ORDERS_DIR):
     os.makedirs(LINE_ORDERS_DIR)
 
-
-
 def save_line_order_data(line_account, sender_name, image_data, message_text=""):
     """
     LINE注文データを保存
@@ -501,14 +499,14 @@ authenticator = stauth.Authenticate(
     expiry_days=credentials_config['cookie']['expiry_days'],
     preauthorized=credentials_config['preauthorized']
 )
-st.set_page_config(page_title="受発注データ集計アプリ（アグリライブ）", layout="wide")
+st.set_page_config(page_title="受注集計アプリ（アグリライブ）", layout="wide")
 
 # 自動更新機能
 if st.button("🔄 データを更新", key="refresh_data"):
     st.rerun()
 
 st.image("会社ロゴ.png", width=220)
-st.title("受発注データ集計アプリ（アグリライブ）")
+st.title("受注集計アプリ（アグリライブ）")
 
 # --- サイドバー ---
 if not st.session_state.get("authentication_status"):
@@ -573,14 +571,9 @@ if st.session_state.get("authentication_status"):
     
     # ログアウトボタンを一番上に配置
     authenticator.logout('ログアウト', 'sidebar')
-    
     st.success(f"{name} さん、ようこそ！")
     
     # LINE注文データの表示
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("📱 LINE注文データ")
-    
-    # LINE注文データの表示（全ユーザー）
     st.sidebar.markdown("---")
     st.sidebar.subheader("📱 LINE注文データ")
     
@@ -790,12 +783,6 @@ if st.session_state.get("authentication_status"):
                         # 画像データを保存
                         image_data = uploaded_line_image.read()
                         
-                        # デバッグ情報を表示
-                        st.info(f"デバッグ情報:")
-                        st.info(f"- ユーザー名: {username}")
-                        st.info(f"- 送信者名: {sender_name or '不明'}")
-                        st.info(f"- 画像サイズ: {len(image_data)} bytes")
-                        
                         success, message = save_line_order_data(
                             username,  # ユーザー名をLINEアカウントIDとして使用
                             sender_name or "不明",
@@ -829,16 +816,73 @@ if st.session_state.get("authentication_status"):
     
     # 既存のLINE注文データ表示
     if line_orders:
-        # デバッグ情報を表示
-        st.info(f"デバッグ情報:")
-        st.info(f"- 取得されたLINE注文データ: {len(line_orders)}件")
-        st.info(f"- 現在のユーザー: {username}")
         
         # 未処理の注文のみを表示
         unprocessed_orders = [order for order in line_orders if not order.get("processed", False)]
         
         if unprocessed_orders:
             st.info(f"未処理のLINE注文が {len(unprocessed_orders)} 件あります。")
+            
+            # 一括解析ボタンを追加
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("🚀 一括解析開始", type="primary", key="batch_parse"):
+                    try:
+                        with st.spinner(f"{len(unprocessed_orders)}件のLINE注文を一括解析中..."):
+                            processed_count = 0
+                            error_count = 0
+                            
+                            for order in unprocessed_orders:
+                                try:
+                                    image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+                                    if os.path.exists(image_path):
+                                        # OpenAI APIで解析
+                                        parsed_data = parse_line_order_with_openai(
+                                            image_path, 
+                                            order['sender_name'], 
+                                            order.get('message_text', '')
+                                        )
+                                        
+                                        # 注文を処理済みにマーク
+                                        orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+                                        with open(orders_file, "r", encoding="utf-8") as f:
+                                            all_orders = json.load(f)
+                                        
+                                        for order_item in all_orders:
+                                            if order_item['timestamp'] == order['timestamp']:
+                                                order_item['processed'] = True
+                                                break
+                                        
+                                        with open(orders_file, "w", encoding="utf-8") as f:
+                                            json.dump(all_orders, f, ensure_ascii=False, indent=4)
+                                        
+                                        processed_count += 1
+                                    else:
+                                        error_count += 1
+                                except Exception as e:
+                                    error_count += 1
+                                    st.error(f"解析エラー ({order['sender_name']}): {e}")
+                            
+                            st.success(f"一括解析完了！ 成功: {processed_count}件, エラー: {error_count}件")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"一括解析エラー: {e}")
+            
+            with col2:
+                if st.button("🗑️ 未処理データ一括削除", type="secondary", key="batch_delete"):
+                    try:
+                        deleted_count = 0
+                        for order in unprocessed_orders:
+                            success, message = delete_line_order_by_timestamp(order['timestamp'])
+                            if success:
+                                deleted_count += 1
+                        
+                        st.success(f"未処理データを {deleted_count} 件削除しました。")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"一括削除エラー: {e}")
+            
+            st.markdown("---")
             
             for i, order in enumerate(unprocessed_orders):
                 with st.expander(f"📋 {order['sender_name']} - {order['order_date']} ({order['timestamp']})"):
@@ -938,7 +982,7 @@ if st.session_state.get("authentication_status"):
     col1, col2 = st.columns([3, 1])
     with col1:
         uploaded_files = st.file_uploader(
-            label="Infomart / IPORTER / PDF 等の注文データファイルをここにドラッグ＆ドロップまたは選択してください",
+            label="Infomart / IPORTER / PDF 等の注文ファイルをここにドラッグ＆ドロップまたは選択してください",
             accept_multiple_files=True,
             type=['txt', 'csv', 'xlsx', 'pdf']
         )
@@ -951,6 +995,38 @@ if st.session_state.get("authentication_status"):
     # LINE注文データをrecordsに追加
     line_orders = get_line_orders_for_user(username)
     processed_line_orders = [order for order in line_orders if order.get("processed", False)]
+    
+    # 全データ表示機能を追加
+    if processed_line_orders:
+        st.subheader("📱 解析済みLINE注文データ")
+        
+        # 統計情報
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("解析済みLINE注文", len(processed_line_orders))
+        with col2:
+            st.metric("送信者数", len(set(order['sender_name'] for order in processed_line_orders)))
+        with col3:
+            st.metric("最新更新", max(order['order_date'] for order in processed_line_orders) if processed_line_orders else "なし")
+        
+        # 解析済みデータの詳細表示
+        with st.expander("📋 解析済みLINE注文詳細", expanded=False):
+            for i, order in enumerate(processed_line_orders):
+                col1, col2 = st.columns([2, 1])
+                
+                with col1:
+                    st.write(f"**{i+1}. {order['sender_name']} - {order['order_date']}**")
+                    st.write(f"受信日時: {order['timestamp']}")
+                    if order.get('message_text'):
+                        st.write(f"メッセージ: {order['message_text']}")
+                
+                with col2:
+                    # 画像表示
+                    image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+                    if os.path.exists(image_path):
+                        st.image(image_path, caption="LINE注文画像", width=200)
+                
+                st.markdown("---")
     
     for order in processed_line_orders:
         # 処理済みのLINE注文データをrecordsに追加
