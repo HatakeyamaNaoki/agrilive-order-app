@@ -520,127 +520,31 @@ st.set_page_config(page_title="受発注データ集計アプリ（アグリラ�
 st.image("会社ロゴ.png", width=220)
 st.title("受発注データ集計アプリ（アグリライブ）")
 
-# LINE公式アカウントWebhook用のFlaskアプリ
-def create_line_webhook_app():
+# LINE公式アカウントWebhook情報表示
+def show_webhook_info():
     """
-    LINE公式アカウントからのWebhookを受信するFlaskアプリを作成
+    LINE公式アカウントWebhook情報を表示
     """
-    from flask import Flask, request, jsonify
-    import requests
+    import streamlit as st
     
-    app = Flask(__name__)
-    
-    @app.route('/webhook/line', methods=['POST'])
-    def line_webhook():
+    if is_production():
+        webhook_url = "https://line-webhook-server.onrender.com/webhook/line"
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🔗 LINE Webhook URL")
+        st.sidebar.code(webhook_url)
+        st.sidebar.info("このURLをLINE公式アカウントのWebhook設定に設定してください")
+        
+        # ヘルスチェック
         try:
-            # LINEからのリクエストを処理
-            data = request.get_json()
-            
-            # メッセージイベントを処理
-            if data.get('events'):
-                for event in data['events']:
-                    if event['type'] == 'message':
-                        # 画像メッセージの場合
-                        if event['message']['type'] == 'image':
-                            # 送信者情報を取得
-                            sender_id = event['source']['userId']
-                            sender_name = "LINE送信者"  # 実際の実装ではLINE APIで名前を取得
-                            
-                            # 画像を取得
-                            message_id = event['message']['id']
-                            line_channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
-                            
-                            if line_channel_access_token:
-                                # LINE APIから画像を取得
-                                headers = {
-                                    'Authorization': f'Bearer {line_channel_access_token}'
-                                }
-                                response = requests.get(
-                                    f'https://api-data.line.me/v2/bot/message/{message_id}/content',
-                                    headers=headers
-                                )
-                                
-                                if response.status_code == 200:
-                                    image_data = response.content
-                                    
-                                    # 注文データを保存
-                                    success, message = save_line_order_data(
-                                        sender_id,  # LINEアカウントID
-                                        sender_name,
-                                        image_data,
-                                        ""  # メッセージテキスト
-                                    )
-                                    
-                                    if success:
-                                        print(f"LINE注文データを保存しました: {message}")
-                                    else:
-                                        print(f"LINE注文データ保存エラー: {message}")
-                                else:
-                                    print(f"LINE画像取得エラー: {response.status_code}")
-                            else:
-                                print("LINE_CHANNEL_ACCESS_TOKENが設定されていません")
-            
-            return jsonify({'status': 'ok'})
-            
-        except Exception as e:
-            print(f"LINE Webhook処理エラー: {e}")
-            return jsonify({'status': 'error', 'message': str(e)}), 500
-    
-    return app
-
-# LINE Webhookサーバーを起動する関数
-def start_line_webhook_server():
-    """
-    LINE Webhookサーバーを起動
-    """
-    try:
-        app = create_line_webhook_app()
-        # 本番環境（Render）でのみ起動
-        if is_production():
-            import threading
-            def run_server():
-                # Render環境でのWebhookサーバー起動
-                port = int(os.getenv('PORT', 5000))
-                app.run(host='0.0.0.0', port=port, debug=False)
-            
-            # バックグラウンドでサーバーを起動
-            server_thread = threading.Thread(target=run_server, daemon=True)
-            server_thread.start()
-            print(f"🌐 Render Webhook URL: https://your-app-name.onrender.com/webhook/line")
-            print("💡 このURLをLINE公式アカウントのWebhook設定に設定してください")
-        else:
-            # ローカル環境ではngrokを使用
-            import threading
-            try:
-                from pyngrok import ngrok
-                
-                def run_server():
-                    try:
-                        # ngrokでHTTPSトンネルを作成
-                        ngrok.kill()
-                        public_url = ngrok.connect(5000)
-                        webhook_url = f"{public_url}/webhook/line"
-                        
-                        print(f"🌐 ngrok HTTPS URL: {public_url}")
-                        print(f"📱 LINE Webhook URL: {webhook_url}")
-                        print("💡 このURLをLINE公式アカウントのWebhook設定に設定してください")
-                        
-                        app.run(host='0.0.0.0', port=5000, debug=False)
-                    except Exception as e:
-                        print(f"ngrok起動エラー: {e}")
-                        app.run(host='0.0.0.0', port=5000, debug=False)
-                
-                server_thread = threading.Thread(target=run_server, daemon=True)
-                server_thread.start()
-            except ImportError:
-                print("⚠️ ローカル環境ではpyngrokが必要です: pip install pyngrok")
-            
-    except Exception as e:
-        print(f"LINE Webhookサーバー起動エラー: {e}")
-
-# アプリケーション起動時にLINE Webhookサーバーを起動
-if __name__ == "__main__":
-    start_line_webhook_server()
+            import requests
+            health_url = "https://line-webhook-server.onrender.com/health"
+            response = requests.get(health_url, timeout=5)
+            if response.status_code == 200:
+                st.sidebar.success("✅ Webhookサーバー稼働中")
+            else:
+                st.sidebar.warning("⚠️ Webhookサーバー応答なし")
+        except:
+            st.sidebar.warning("⚠️ Webhookサーバー接続エラー")
 
 # --- サイドバー ---
 if not st.session_state.get("authentication_status"):
@@ -747,37 +651,9 @@ if st.session_state.get("authentication_status"):
         **例:** `U1234567890abcdef`
         """)
     
-    # Webhook URL情報を表示（管理者のみ）
+    # Webhook情報を表示（管理者のみ）
     if is_admin(username):
-        with st.sidebar.expander("🔗 Webhook URL情報"):
-            if is_production():
-                st.markdown("""
-                **LINE公式アカウント設定（本番環境）:**
-                
-                1. **LINE Developersコンソール**にアクセス
-                2. **Messaging API**チャネルを選択
-                3. **Webhook URL**に以下を設定:
-                ```
-                https://agrilive-order-app.onrender.com/webhook/line
-                ```
-                4. **Webhookの利用**を有効にする
-                5. **イベントタイプ**で「メッセージ」「画像メッセージ」を有効にする
-                """)
-            else:
-                st.markdown("""
-                **LINE公式アカウント設定（ローカル環境）:**
-                
-                1. **LINE Developersコンソール**にアクセス
-                2. **Messaging API**チャネルを選択
-                3. **Webhook URL**に以下を設定:
-                ```
-                https://[ngrok-url]/webhook/line
-                ```
-                4. **Webhookの利用**を有効にする
-                5. **イベントタイプ**で「メッセージ」「画像メッセージ」を有効にする
-                
-                **ngrok URLはコンソールログで確認できます**
-                """)
+        show_webhook_info()
     
     # 管理者ダッシュボード
     try:
@@ -917,9 +793,49 @@ if st.session_state.get("authentication_status"):
 
     # LINE注文データの表示
     line_orders = get_line_orders_for_user(username)
-    if line_orders:
-        st.subheader("📱 LINE注文データ")
+    
+    # 手動アップロード機能
+    st.subheader("📱 LINE注文データ")
+    
+    # LINE画像の手動アップロード
+    with st.expander("📤 LINE画像を手動アップロード"):
+        uploaded_line_image = st.file_uploader(
+            "LINEの注文画像をアップロード",
+            type=['png', 'jpg', 'jpeg'],
+            key="line_image_upload"
+        )
         
+        if uploaded_line_image:
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.image(uploaded_line_image, caption="アップロードされたLINE画像", width=400)
+            
+            with col2:
+                sender_name = st.text_input("送信者名", value="", key="sender_name")
+                message_text = st.text_area("メッセージ内容（オプション）", key="message_text")
+                
+                if st.button("LINE注文として保存", key="save_line_order"):
+                    try:
+                        # 画像データを保存
+                        image_data = uploaded_line_image.read()
+                        success, message = save_line_order_data(
+                            username,  # LINEアカウントIDとしてユーザー名を使用
+                            sender_name or "不明",
+                            image_data,
+                            message_text
+                        )
+                        
+                        if success:
+                            st.success("LINE注文データを保存しました！")
+                            st.rerun()
+                        else:
+                            st.error(f"保存エラー: {message}")
+                    except Exception as e:
+                        st.error(f"保存エラー: {e}")
+    
+    # 既存のLINE注文データ表示
+    if line_orders:
         # 未処理の注文のみを表示
         unprocessed_orders = [order for order in line_orders if not order.get("processed", False)]
         
@@ -1015,6 +931,8 @@ if st.session_state.get("authentication_status"):
                             st.rerun()
         else:
             st.info("未処理のLINE注文はありません。")
+    else:
+        st.info("LINE注文データはありません。手動アップロード機能をご利用ください。")
     
     st.subheader("注文データファイルのアップロード")
     
