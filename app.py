@@ -920,7 +920,7 @@ if st.session_state.get("authentication_status"):
                                     for item in items:
                                         record = {
                                             "order_id": item.get("order_id", ""),
-                                            "order_date": parsed_data.get("order_date", order['order_date']),
+                                            "order_date": order['order_date'],  # Webアプリでの受信日を使用
                                             "delivery_date": delivery_date,
                                             "partner_name": parsed_data.get("partner_name", order['sender_name']),
                                             "product_code": item.get("product_code", ""),
@@ -984,147 +984,164 @@ if st.session_state.get("authentication_status"):
         uploaded_files = st.file_uploader(
             label="Infomart / IPORTER / PDF 等の注文ファイルをここにドラッグ＆ドロップまたは選択してください",
             accept_multiple_files=True,
-            type=['txt', 'csv', 'xlsx', 'pdf']
+            type=['txt', 'csv', 'xlsx', 'pdf'],
+            key="file_uploader"
         )
+        # ファイルがアップロードされた場合は編集状態をリセット
+        if uploaded_files:
+            st.session_state.data_edited = False
     with col2:
         show_pdf_images = st.checkbox("PDF画像を表示", value=True, help="PDFファイルの画像を表示するかどうかを設定します")
 
     records = []
     debug_details = []
     
-    # LINE注文データをrecordsに追加
-    line_orders = get_line_orders_for_user(username)
-    processed_line_orders = [order for order in line_orders if order.get("processed", False)]
+    # データ編集状態を管理
+    if 'data_edited' not in st.session_state:
+        st.session_state.data_edited = False
     
-    # 全データ表示機能を追加
-    if processed_line_orders:
-        st.subheader("📱 解析済みLINE注文データ")
+    # 編集済みの場合は再解析をスキップ
+    if not st.session_state.data_edited:
+        # LINE注文データをrecordsに追加
+        line_orders = get_line_orders_for_user(username)
+        processed_line_orders = [order for order in line_orders if order.get("processed", False)]
         
-        # 統計情報
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("解析済みLINE注文", len(processed_line_orders))
-        with col2:
-            st.metric("送信者数", len(set(order['sender_name'] for order in processed_line_orders)))
-        with col3:
-            st.metric("最新更新", max(order['order_date'] for order in processed_line_orders) if processed_line_orders else "なし")
-        
-        # 解析済みデータの詳細表示
-        with st.expander("📋 解析済みLINE注文詳細", expanded=False):
-            for i, order in enumerate(processed_line_orders):
-                col1, col2 = st.columns([2, 1])
-                
-                with col1:
-                    st.write(f"**{i+1}. {order['sender_name']} - {order['order_date']}**")
-                    st.write(f"受信日時: {order['timestamp']}")
-                    if order.get('message_text'):
-                        st.write(f"メッセージ: {order['message_text']}")
-                
-                with col2:
-                    # 画像表示
-                    image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
-                    if os.path.exists(image_path):
-                        st.image(image_path, caption="LINE注文画像", width=200)
-                
-                st.markdown("---")
-    
-    for order in processed_line_orders:
-        # 処理済みのLINE注文データをrecordsに追加
-        image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
-        if os.path.exists(image_path):
-            try:
-                # OpenAI APIで解析済みデータを取得
-                parsed_data = parse_line_order_with_openai(
-                    image_path, 
-                    order['sender_name'], 
-                    order.get('message_text', '')
-                )
-                
-                delivery_date = parsed_data.get("delivery_date", "")
-                items = parsed_data.get("items", [])
-                
-                for item in items:
-                    record = {
-                        "order_id": item.get("order_id", ""),
-                        "order_date": parsed_data.get("order_date", order['order_date']),
-                        "delivery_date": delivery_date,
-                        "partner_name": parsed_data.get("partner_name", order['sender_name']),
-                        "product_code": item.get("product_code", ""),
-                        "product_name": item.get("product_name", ""),
-                        "quantity": item.get("quantity", ""),
-                        "unit": item.get("unit", ""),
-                        "unit_price": item.get("unit_price", ""),
-                        "amount": item.get("amount", ""),
-                        "remark": item.get("remark", ""),
-                        "data_source": f"LINE注文_{order['timestamp']}"
-                    }
-                    records.append(record)
-            except Exception as e:
-                st.warning(f"LINE注文データの読み込みに失敗: {e}")
-    if uploaded_files:
-        for file in uploaded_files:
-            filename = file.name
-            content = file.read()
-
-            if filename.lower().endswith((".txt", ".csv")):
-                filetype, detected_enc, debug_log = detect_csv_type(content)
-                debug_details.append(f"【{filename}】\n" + "\n".join(debug_log))
-                file_like = io.BytesIO(content)
-                if filetype == 'infomart':
-                    records += parse_infomart(file_like, filename)
-                elif filetype == 'iporter':
-                    records += parse_iporter(file_like, filename)
-                else:
-                    st.warning(f"{filename} は未対応のフォーマットです")
-
-            elif filename.lower().endswith(".xlsx"):
-                try:
-                    df_excel = pd.read_excel(io.BytesIO(content), sheet_name=0, header=None)
-                    if df_excel.shape[0] > 5 and str(df_excel.iloc[4, 1]).strip() == "伝票番号":
-                        file_like = io.BytesIO(content)
-                        records += parse_mitsubishi(file_like, filename)
-                    else:
-                        st.warning(f"{filename} は未対応のExcelフォーマットです")
-                except Exception as e:
-                    st.error(f"{filename} の読み込みに失敗しました: {e}")
+        # 全データ表示機能を追加
+        if processed_line_orders:
+            st.subheader("📱 解析済みLINE注文データ")
             
-            elif filename.lower().endswith(".pdf"):
-                # PDF画像の抽出と表示
-                if show_pdf_images:
-                    pdf_images = extract_pdf_images(content)
-                    if pdf_images:
-                        display_pdf_images(pdf_images, filename)
-                
-                # PDF解析の実行
+            # 統計情報
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("解析済みLINE注文", len(processed_line_orders))
+            with col2:
+                st.metric("送信者数", len(set(order['sender_name'] for order in processed_line_orders)))
+            with col3:
+                st.metric("最新更新", max(order['order_date'] for order in processed_line_orders) if processed_line_orders else "なし")
+            
+            # 解析済みデータの詳細表示
+            with st.expander("📋 解析済みLINE注文詳細", expanded=False):
+                for i, order in enumerate(processed_line_orders):
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        st.write(f"**{i+1}. {order['sender_name']} - {order['order_date']}**")
+                        st.write(f"受信日時: {order['timestamp']}")
+                        if order.get('message_text'):
+                            st.write(f"メッセージ: {order['message_text']}")
+                    
+                    with col2:
+                        # 画像表示
+                        image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+                        if os.path.exists(image_path):
+                            st.image(image_path, caption="LINE注文画像", width=200)
+                    
+                    st.markdown("---")
+        
+        for order in processed_line_orders:
+            # 処理済みのLINE注文データをrecordsに追加
+            image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+            if os.path.exists(image_path):
                 try:
-                    with st.spinner(f"{filename} を解析中..."):
-                        # APIキーの事前確認
-                        try:
-                            from config import get_openai_api_key
-                            api_key = get_openai_api_key()
-                            if not api_key:
-                                st.error("OpenAI APIキーが設定されていません")
-                                continue
-                        except Exception as api_error:
-                            st.error(f"APIキー取得エラー: {api_error}")
-                            continue
-                        
-                        pdf_records = parse_pdf_handwritten(content, filename)
-                        records += pdf_records
-                        # 商品情報の抽出状況を確認
-                        if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
-                            st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
-                    st.success(f"{filename} の解析が完了しました")
+                    # OpenAI APIで解析済みデータを取得
+                    parsed_data = parse_line_order_with_openai(
+                        image_path, 
+                        order['sender_name'], 
+                        order.get('message_text', '')
+                    )
+                    
+                    delivery_date = parsed_data.get("delivery_date", "")
+                    items = parsed_data.get("items", [])
+                    
+                    for item in items:
+                        record = {
+                            "order_id": item.get("order_id", ""),
+                            "order_date": order['order_date'],  # Webアプリでの受信日を使用
+                            "delivery_date": delivery_date,
+                            "partner_name": parsed_data.get("partner_name", order['sender_name']),
+                            "product_code": item.get("product_code", ""),
+                            "product_name": item.get("product_name", ""),
+                            "quantity": item.get("quantity", ""),
+                            "unit": item.get("unit", ""),
+                            "unit_price": item.get("unit_price", ""),
+                            "amount": item.get("amount", ""),
+                            "remark": item.get("remark", ""),
+                            "data_source": f"LINE注文_{order['timestamp']}"
+                        }
+                        records.append(record)
                 except Exception as e:
-                    st.error(f"{filename} の解析に失敗しました: {e}")
-                    st.error(f"詳細エラー: {str(e)}")
-                    # 本番環境での追加情報
-                    if is_production():
-                        st.info("本番環境でのトラブルシューティング:")
-                        st.info("1. Render Secrets FilesでOPENAI_API_KEYが正しく設定されているか確認")
-                        st.info("2. アプリケーションを再デプロイして環境変数を反映")
-                        st.info("3. Renderのログで詳細なエラー情報を確認")
-    
+                    st.warning(f"LINE注文データの読み込みに失敗: {e}")
+        
+        if uploaded_files:
+            for file in uploaded_files:
+                filename = file.name
+                content = file.read()
+
+                if filename.lower().endswith((".txt", ".csv")):
+                    filetype, detected_enc, debug_log = detect_csv_type(content)
+                    debug_details.append(f"【{filename}】\n" + "\n".join(debug_log))
+                    file_like = io.BytesIO(content)
+                    if filetype == 'infomart':
+                        records += parse_infomart(file_like, filename)
+                    elif filetype == 'iporter':
+                        records += parse_iporter(file_like, filename)
+                    else:
+                        st.warning(f"{filename} は未対応のフォーマットです")
+
+                elif filename.lower().endswith(".xlsx"):
+                    try:
+                        df_excel = pd.read_excel(io.BytesIO(content), sheet_name=0, header=None)
+                        if df_excel.shape[0] > 5 and str(df_excel.iloc[4, 1]).strip() == "伝票番号":
+                            file_like = io.BytesIO(content)
+                            records += parse_mitsubishi(file_like, filename)
+                        else:
+                            st.warning(f"{filename} は未対応のExcelフォーマットです")
+                    except Exception as e:
+                        st.error(f"{filename} の読み込みに失敗しました: {e}")
+                
+                elif filename.lower().endswith(".pdf"):
+                    # PDF画像の抽出と表示
+                    if show_pdf_images:
+                        pdf_images = extract_pdf_images(content)
+                        if pdf_images:
+                            display_pdf_images(pdf_images, filename)
+                    
+                    # PDF解析の実行
+                    try:
+                        with st.spinner(f"{filename} を解析中..."):
+                            # APIキーの事前確認
+                            try:
+                                from config import get_openai_api_key
+                                api_key = get_openai_api_key()
+                                if not api_key:
+                                    st.error("OpenAI APIキーが設定されていません")
+                                    continue
+                            except Exception as api_error:
+                                st.error(f"APIキー取得エラー: {api_error}")
+                                continue
+                            
+                            pdf_records = parse_pdf_handwritten(content, filename)
+                            records += pdf_records
+                            # 商品情報の抽出状況を確認
+                            if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
+                                st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
+                        st.success(f"{filename} の解析が完了しました")
+                    except Exception as e:
+                        st.error(f"{filename} の解析に失敗しました: {e}")
+                        st.error(f"詳細エラー: {str(e)}")
+                        # 本番環境での追加情報
+                        if is_production():
+                            st.info("本番環境でのトラブルシューティング:")
+                            st.info("1. Render Secrets FilesでOPENAI_API_KEYが正しく設定されているか確認")
+                            st.info("2. アプリケーションを再デプロイして環境変数を反映")
+                            st.info("3. Renderのログで詳細なエラー情報を確認")
+    else:
+        # 編集済みの場合は既存のデータを表示
+        st.info("📝 データが編集されています。ファイルを再アップロードすると再解析されます。")
+        if st.button("🔄 データを再読み込み", key="reload_data"):
+            st.session_state.data_edited = False
+            st.rerun()
+
     # レコードが存在する場合（空でも表示）
     if records:        
         df = pd.DataFrame(records)
@@ -1147,7 +1164,8 @@ if st.session_state.get("authentication_status"):
                 use_container_width=True,
                 num_rows="dynamic",
                 key="editor",
-                hide_index=True
+                hide_index=True,
+                on_change=lambda: setattr(st.session_state, 'data_edited', True)
             )
         else:
             st.warning("表示可能なデータがありません。商品情報の抽出に失敗した可能性があります。")
