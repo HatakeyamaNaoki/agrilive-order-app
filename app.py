@@ -5,7 +5,7 @@ import pandas as pd
 import io
 import datetime
 import pytz
-from config import get_openai_api_key, is_production, load_config
+from config import get_openai_api_key, is_production, load_config, get_line_channel_access_token
 from parser_infomart import parse_infomart
 from parser_iporter import parse_iporter
 from parser_mitsubishi import parse_mitsubishi
@@ -45,7 +45,7 @@ def line_webhook():
                     if event['message']['type'] == 'image':
                         # 送信者情報を取得
                         sender_id = event['source']['userId']
-                        line_channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
+                        line_channel_access_token = get_line_channel_access_token()
                         
                         if line_channel_access_token:
                             # LINE APIで送信者のプロフィール情報を取得
@@ -697,14 +697,14 @@ def show_webhook_info():
             st.sidebar.warning("⚠️ Webhookサーバー接続エラー")
         
         # LINE設定情報
-        line_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
-        if line_token:
+        try:
+            line_token = get_line_channel_access_token()
             st.sidebar.success("✅ LINE_CHANNEL_ACCESS_TOKEN設定済み")
             # トークンの一部を表示（セキュリティのため）
             token_preview = line_token[:10] + "..." + line_token[-10:] if len(line_token) > 20 else "***"
             st.sidebar.info(f"トークン: {token_preview}")
-        else:
-            st.sidebar.error("❌ LINE_CHANNEL_ACCESS_TOKEN未設定")
+        except Exception as e:
+            st.sidebar.error(f"❌ LINE_CHANNEL_ACCESS_TOKEN未設定: {e}")
         
         # 最近の受信状況
         try:

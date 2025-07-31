@@ -80,7 +80,59 @@ def is_production():
     """
     本番環境かどうかを判定
     """
-    return os.getenv('RENDER', False) or os.getenv('PRODUCTION', False) 
+    return os.getenv('RENDER', False) or os.getenv('PRODUCTION', False)
+
+def get_line_channel_access_token():
+    """
+    LINE Channel Access Tokenを取得する
+    本番環境: Render Secrets Filesからのみ
+    ローカル環境: .envファイルから
+    """
+    # 本番環境（Render）の場合
+    if os.getenv('RENDER'):
+        # まず環境変数として試行
+        token = (os.getenv('LINE_CHANNEL_ACCESS_TOKEN') or 
+            os.getenv('LINE_CHANNEL_ACCESS_TOKEN_SECRET') or
+            os.getenv('LINE_CHANNEL_ACCESS_TOKEN_SECRETS') or
+            os.getenv('LINE_CHANNEL_ACCESS_TOKEN_RENDER') or
+            os.getenv('LINE_CHANNEL_ACCESS_TOKEN_SECRETS_FILE'))
+        
+        # 環境変数で取得できない場合、Secret Filesから読み込み
+        if not token:
+            try:
+                # Render Secret Filesのパスを試行
+                secret_paths = [
+                    '/etc/secrets/LINE_CHANNEL_ACCESS_TOKEN',
+                    'LINE_CHANNEL_ACCESS_TOKEN',
+                    './LINE_CHANNEL_ACCESS_TOKEN'
+                ]
+                
+                for path in secret_paths:
+                    if os.path.exists(path):
+                        with open(path, 'r') as f:
+                            token = f.read().strip()
+                            print(f"Secret FilesからLINE Token取得成功: {path}")
+                            break
+                
+                if not token:
+                    print("LINE Token Secret Filesパス確認:")
+                    for path in secret_paths:
+                        print(f"  {path}: {os.path.exists(path)}")
+                    
+            except Exception as e:
+                print(f"LINE Token Secret Files読み込みエラー: {e}")
+        
+        if not token:
+            raise Exception("本番環境でLINE_CHANNEL_ACCESS_TOKENが設定されていません。Render Secrets Filesを確認してください。")
+        
+        print(f"LINE Token取得成功: {token[:8]}...{token[-4:] if len(token) > 12 else '***'}")
+        return token
+    
+    # ローカル開発環境の場合
+    token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
+    if not token:
+        raise Exception("ローカル環境でLINE_CHANNEL_ACCESS_TOKENが設定されていません。.envファイルを確認してください。")
+    return token 
 
 # 顧客ごとの出力設定JSONを読み込む関数
 def load_config(user_id: str) -> dict:
