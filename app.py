@@ -201,10 +201,6 @@ def get_line_orders_for_user(email):
     ユーザーに関連するLINE注文データを取得
     """
     try:
-        line_account = get_line_account(email)
-        if not line_account:
-            return []
-        
         orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
         if not os.path.exists(orders_file):
             return []
@@ -212,8 +208,8 @@ def get_line_orders_for_user(email):
         with open(orders_file, "r", encoding="utf-8") as f:
             all_orders = json.load(f)
         
-        # ユーザーのLINEアカウントに関連する注文のみをフィルタ
-        user_orders = [order for order in all_orders if order.get("line_account") == line_account]
+        # ユーザー名で直接フィルタ（手動アップロード用）
+        user_orders = [order for order in all_orders if order.get("line_account") == email]
         return user_orders
     except Exception as e:
         print(f"LINE注文データ取得エラー: {e}")
@@ -642,6 +638,7 @@ def show_webhook_info():
         # 最新のLINE注文データを表示
         line_orders = get_line_orders_for_user(username)
         if line_orders:
+            st.sidebar.success(f"📱 LINE注文データ: {len(line_orders)}件")
             latest_orders = sorted(line_orders, key=lambda x: x['timestamp'], reverse=True)[:3]
             for order in latest_orders:
                 with st.sidebar.expander(f"📋 {order['sender_name']} - {order['order_date']}"):
@@ -653,6 +650,7 @@ def show_webhook_info():
                         st.warning("⏳ 未処理")
         else:
             st.sidebar.info("LINE注文データはありません")
+            st.sidebar.info(f"ユーザー: {username}")
 
 # --- サイドバー ---
 if not st.session_state.get("authentication_status"):
@@ -942,7 +940,7 @@ if st.session_state.get("authentication_status"):
                         # 画像データを保存
                         image_data = uploaded_line_image.read()
                         success, message = save_line_order_data(
-                            username,  # LINEアカウントIDとしてユーザー名を使用
+                            username,  # ユーザー名をLINEアカウントIDとして使用
                             sender_name or "不明",
                             image_data,
                             message_text
@@ -950,11 +948,16 @@ if st.session_state.get("authentication_status"):
                         
                         if success:
                             st.success("LINE注文データを保存しました！")
+                            st.info(f"保存されたデータ: 送信者={sender_name or '不明'}, ユーザー={username}")
+                            # 3秒間待機してからページを再読み込み
+                            import time
+                            time.sleep(3)
                             st.rerun()
                         else:
                             st.error(f"保存エラー: {message}")
                     except Exception as e:
                         st.error(f"保存エラー: {e}")
+                        st.error(f"詳細: {str(e)}")
     
     # 既存のLINE注文データ表示
     if line_orders:
