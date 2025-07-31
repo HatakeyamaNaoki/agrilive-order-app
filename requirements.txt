@@ -23,4 +23,3 @@ google-auth>=2.17.0
 # LINE Webhook用
 flask>=2.3.0
 requests>=2.31.0
-pyngrok>=6.0.0

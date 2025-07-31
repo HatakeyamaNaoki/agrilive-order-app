@@ -10,19 +10,4 @@ services:
       - key: RENDER
         value: true
       - key: OPENAI_API_KEY
-        sync: false
-      - key: LINE_CHANNEL_ACCESS_TOKEN
-        sync: false
-  
-  - type: web
-    name: line-webhook-server
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python webhook_server.py
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.9.16
-      - key: RENDER
-        value: true
-      - key: LINE_CHANNEL_ACCESS_TOKEN
         sync: false 
