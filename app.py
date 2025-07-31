@@ -182,7 +182,7 @@ def delete_line_order_by_timestamp(timestamp):
     except Exception as e:
         return False, f"削除エラー: {e}"
 
-def parse_line_order_with_openai(image_path, sender_name, message_text=""):
+def parse_line_order_with_openai(image_path, sender_name, message_text="", order_date=""):
     """
     OpenAI APIを使用してLINE注文画像を解析
     """
@@ -201,6 +201,9 @@ def parse_line_order_with_openai(image_path, sender_name, message_text=""):
         # システムプロンプト
         system_prompt = get_line_order_prompt()
         
+        # 受信日時を含むユーザーメッセージ
+        user_message = f"送信者: {sender_name}\n受信日: {order_date}\nメッセージ: {message_text}\n\nこのLINE注文を解析してください。受信日を基準に納品日を計算してください。"
+        
         # OpenAI APIを呼び出し
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -212,7 +215,7 @@ def parse_line_order_with_openai(image_path, sender_name, message_text=""):
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": f"送信者: {sender_name}\nメッセージ: {message_text}\n\nこのLINE注文を解析してください。"},
+                        {"type": "text", "text": user_message},
                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_data}"}}
                     ]
                 }
@@ -235,11 +238,9 @@ def parse_line_order_with_openai(image_path, sender_name, message_text=""):
             
             parsed_data = json.loads(cleaned_content)
             
-            # 発注日が空の場合は日本時間の本日を設定
+            # 発注日が空の場合は受信日を設定
             if not parsed_data.get("order_date"):
-                jst = timezone(timedelta(hours=9))
-                current_time = datetime.now(jst)
-                parsed_data["order_date"] = current_time.strftime("%Y/%m/%d")
+                parsed_data["order_date"] = order_date
             
             return parsed_data
         except json.JSONDecodeError as e:
@@ -840,7 +841,8 @@ if st.session_state.get("authentication_status"):
                                         parsed_data = parse_line_order_with_openai(
                                             image_path, 
                                             order['sender_name'], 
-                                            order.get('message_text', '')
+                                            order.get('message_text', ''),
+                                            order['order_date'] # 受信日時を渡す
                                         )
                                         
                                         # 注文を処理済みにマーク
@@ -909,7 +911,8 @@ if st.session_state.get("authentication_status"):
                                     parsed_data = parse_line_order_with_openai(
                                         image_path, 
                                         order['sender_name'], 
-                                        order.get('message_text', '')
+                                        order.get('message_text', ''),
+                                        order['order_date'] # 受信日時を渡す
                                     )
                                     
                                     # 標準形式に変換
@@ -1047,7 +1050,8 @@ if st.session_state.get("authentication_status"):
                     parsed_data = parse_line_order_with_openai(
                         image_path, 
                         order['sender_name'], 
-                        order.get('message_text', '')
+                        order.get('message_text', ''),
+                        order['order_date'] # 受信日時を渡す
                     )
                     
                     delivery_date = parsed_data.get("delivery_date", "")
