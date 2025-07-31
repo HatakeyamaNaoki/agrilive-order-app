@@ -111,18 +111,9 @@ def health_check():
     """ヘルスチェック用エンドポイント"""
     return jsonify({'status': 'healthy', 'service': 'line-webhook'})
 
-def start_webhook_server():
-    """Webhookサーバーをバックグラウンドで起動"""
-    try:
-        port = int(os.getenv('PORT', 5000)) + 1  # メインアプリと異なるポート
-        webhook_app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
-    except Exception as e:
-        print(f"Webhookサーバー起動エラー: {e}")
-
-# バックグラウンドでWebhookサーバーを起動
+# Webhookサーバー起動を無効化（ポート競合を避けるため）
 if is_production():
-    webhook_thread = threading.Thread(target=start_webhook_server, daemon=True)
-    webhook_thread.start()
+    print("🌐 Webhookサーバー起動を無効化しています（手動アップロード機能をご利用ください）")
     print(f"🌐 Webhook URL: https://agrilive-order-app.onrender.com/webhook/line")
 
 def add_line_account(email, line_account):
