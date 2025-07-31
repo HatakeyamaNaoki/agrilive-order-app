@@ -276,6 +276,73 @@ def get_available_line_ids():
         print(f"LINE ID一覧取得エラー: {e}")
         return []
 
+def delete_processed_line_orders():
+    """
+    処理済みのLINE注文データを削除
+    """
+    try:
+        orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+        if not os.path.exists(orders_file):
+            return True, "削除対象のデータがありません"
+        
+        with open(orders_file, "r", encoding="utf-8") as f:
+            all_orders = json.load(f)
+        
+        # 処理済みの注文を削除
+        original_count = len(all_orders)
+        remaining_orders = [order for order in all_orders if not order.get("processed", False)]
+        deleted_count = original_count - len(remaining_orders)
+        
+        # 削除された注文の画像ファイルも削除
+        deleted_orders = [order for order in all_orders if order.get("processed", False)]
+        for order in deleted_orders:
+            image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+            if os.path.exists(image_path):
+                os.remove(image_path)
+        
+        # 残りの注文データを保存
+        with open(orders_file, "w", encoding="utf-8") as f:
+            json.dump(remaining_orders, f, ensure_ascii=False, indent=4)
+        
+        return True, f"{deleted_count}件の処理済みデータを削除しました"
+    except Exception as e:
+        return False, f"削除エラー: {e}"
+
+def delete_line_order_by_timestamp(timestamp):
+    """
+    指定されたタイムスタンプのLINE注文データを削除
+    """
+    try:
+        orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+        if not os.path.exists(orders_file):
+            return False, "データファイルが見つかりません"
+        
+        with open(orders_file, "r", encoding="utf-8") as f:
+            all_orders = json.load(f)
+        
+        # 指定されたタイムスタンプの注文を削除
+        original_count = len(all_orders)
+        remaining_orders = [order for order in all_orders if order['timestamp'] != timestamp]
+        deleted_count = original_count - len(remaining_orders)
+        
+        if deleted_count == 0:
+            return False, "指定されたデータが見つかりません"
+        
+        # 削除された注文の画像ファイルも削除
+        deleted_orders = [order for order in all_orders if order['timestamp'] == timestamp]
+        for order in deleted_orders:
+            image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+            if os.path.exists(image_path):
+                os.remove(image_path)
+        
+        # 残りの注文データを保存
+        with open(orders_file, "w", encoding="utf-8") as f:
+            json.dump(remaining_orders, f, ensure_ascii=False, indent=4)
+        
+        return True, f"データを削除しました"
+    except Exception as e:
+        return False, f"削除エラー: {e}"
+
 def parse_line_order_with_openai(image_path, sender_name, message_text=""):
     """
     OpenAI APIを使用してLINE注文画像を解析
@@ -687,6 +754,15 @@ def show_webhook_info():
                         st.success("✅ 処理済み")
                     else:
                         st.warning("⏳ 未処理")
+                    
+                    # 削除ボタン
+                    if st.sidebar.button(f"🗑️ 削除", key=f"sidebar_delete_{order['timestamp']}"):
+                        success, message = delete_line_order_by_timestamp(order['timestamp'])
+                        if success:
+                            st.sidebar.success(message)
+                            st.rerun()
+                        else:
+                            st.sidebar.error(message)
         else:
             st.sidebar.info("LINE注文データはありません")
             st.sidebar.info(f"ユーザー: {username}")
@@ -870,6 +946,16 @@ if st.session_state.get("authentication_status"):
             with col3:
                 processed_orders = [order for order in all_line_orders if order.get("processed", False)]
                 st.metric("処理済み注文数", len(processed_orders))
+            
+            # 処理済みデータ削除ボタン
+            if processed_orders:
+                if st.button("🗑️ 処理済みデータ一括削除", type="secondary"):
+                    success, message = delete_processed_line_orders()
+                    if success:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
             
             # LINE ID一覧
             if available_line_ids:
@@ -1288,12 +1374,27 @@ if st.session_state.get("authentication_status"):
                 worksheet3.write(0, col_num, value, header_format)
 
         output.seek(0)
-        st.download_button(
-            label="Excelをダウンロード",
-            data=output,
-            file_name=f"{now_str}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        
+        # ダウンロードボタンと削除ボタンを横に並べる
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.download_button(
+                label="Excelをダウンロード",
+                data=output,
+                file_name=f"{now_str}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        
+        with col2:
+            if processed_line_orders:  # 処理済みデータがある場合のみ削除ボタンを表示
+                if st.button("🗑️ 処理済みデータ削除", type="secondary"):
+                    success, message = delete_processed_line_orders()
+                    if success:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
     else:
         st.info("注文ファイルをアップロードしてください")
 
