@@ -990,11 +990,25 @@ if st.session_state.get("authentication_status"):
             type=['txt', 'csv', 'xlsx', 'pdf'],
             key="file_uploader"
         )
-        # ファイルがアップロードされた場合は編集状態をリセット
+        # 新しいファイルがアップロードされた場合のみ編集状態をリセット
         if uploaded_files:
-            st.session_state.data_edited = False
+            new_files_count = 0
+            for file in uploaded_files:
+                file_hash = f"{file.name}_{file.size}_{file.type}"
+                if file_hash not in st.session_state.processed_files:
+                    new_files_count += 1
+            
+            if new_files_count > 0:
+                st.session_state.data_edited = False
     with col2:
         show_pdf_images = st.checkbox("PDF画像を表示", value=True, help="PDFファイルの画像を表示するかどうかを設定します")
+        
+        # 解析済みファイルリセットボタン
+        if st.button("🔄 解析済みファイルをリセット", key="reset_processed_files", help="解析済みファイルの履歴をクリアします"):
+            st.session_state.processed_files = set()
+            st.session_state.data_edited = False
+            st.success("解析済みファイルをリセットしました。")
+            st.rerun()
 
     records = []
     debug_details = []
@@ -1002,6 +1016,10 @@ if st.session_state.get("authentication_status"):
     # データ編集状態を管理
     if 'data_edited' not in st.session_state:
         st.session_state.data_edited = False
+    
+    # 解析済みファイルの状態管理
+    if 'processed_files' not in st.session_state:
+        st.session_state.processed_files = set()
     
     # 編集済みの場合は再解析をスキップ
     if not st.session_state.data_edited:
@@ -1077,68 +1095,81 @@ if st.session_state.get("authentication_status"):
                     st.warning(f"LINE注文データの読み込みに失敗: {e}")
         
         if uploaded_files:
+            # 新しいファイルのみを処理
+            new_files = []
             for file in uploaded_files:
-                filename = file.name
-                content = file.read()
-
-                if filename.lower().endswith((".txt", ".csv")):
-                    filetype, detected_enc, debug_log = detect_csv_type(content)
-                    debug_details.append(f"【{filename}】\n" + "\n".join(debug_log))
-                    file_like = io.BytesIO(content)
-                    if filetype == 'infomart':
-                        records += parse_infomart(file_like, filename)
-                    elif filetype == 'iporter':
-                        records += parse_iporter(file_like, filename)
-                    else:
-                        st.warning(f"{filename} は未対応のフォーマットです")
-
-                elif filename.lower().endswith(".xlsx"):
-                    try:
-                        df_excel = pd.read_excel(io.BytesIO(content), sheet_name=0, header=None)
-                        if df_excel.shape[0] > 5 and str(df_excel.iloc[4, 1]).strip() == "伝票番号":
-                            file_like = io.BytesIO(content)
-                            records += parse_mitsubishi(file_like, filename)
-                        else:
-                            st.warning(f"{filename} は未対応のExcelフォーマットです")
-                    except Exception as e:
-                        st.error(f"{filename} の読み込みに失敗しました: {e}")
+                file_hash = f"{file.name}_{file.size}_{file.type}"
+                if file_hash not in st.session_state.processed_files:
+                    new_files.append(file)
+                    st.session_state.processed_files.add(file_hash)
+            
+            if new_files:
+                st.info(f"新しいファイル {len(new_files)} 件を解析します")
                 
-                elif filename.lower().endswith(".pdf"):
-                    # PDF画像の抽出と表示
-                    if show_pdf_images:
-                        pdf_images = extract_pdf_images(content)
-                        if pdf_images:
-                            display_pdf_images(pdf_images, filename)
+                for file in new_files:
+                    filename = file.name
+                    content = file.read()
+
+                    if filename.lower().endswith((".txt", ".csv")):
+                        filetype, detected_enc, debug_log = detect_csv_type(content)
+                        debug_details.append(f"【{filename}】\n" + "\n".join(debug_log))
+                        file_like = io.BytesIO(content)
+                        if filetype == 'infomart':
+                            records += parse_infomart(file_like, filename)
+                        elif filetype == 'iporter':
+                            records += parse_iporter(file_like, filename)
+                        else:
+                            st.warning(f"{filename} は未対応のフォーマットです")
+
+                    elif filename.lower().endswith(".xlsx"):
+                        try:
+                            df_excel = pd.read_excel(io.BytesIO(content), sheet_name=0, header=None)
+                            if df_excel.shape[0] > 5 and str(df_excel.iloc[4, 1]).strip() == "伝票番号":
+                                file_like = io.BytesIO(content)
+                                records += parse_mitsubishi(file_like, filename)
+                            else:
+                                st.warning(f"{filename} は未対応のExcelフォーマットです")
+                        except Exception as e:
+                            st.error(f"{filename} の読み込みに失敗しました: {e}")
                     
-                    # PDF解析の実行
-                    try:
-                        with st.spinner(f"{filename} を解析中..."):
-                            # APIキーの事前確認
-                            try:
-                                from config import get_openai_api_key
-                                api_key = get_openai_api_key()
-                                if not api_key:
-                                    st.error("OpenAI APIキーが設定されていません")
+                    elif filename.lower().endswith(".pdf"):
+                        # PDF画像の抽出と表示
+                        if show_pdf_images:
+                            pdf_images = extract_pdf_images(content)
+                            if pdf_images:
+                                display_pdf_images(pdf_images, filename)
+                        
+                        # PDF解析の実行
+                        try:
+                            with st.spinner(f"{filename} を解析中..."):
+                                # APIキーの事前確認
+                                try:
+                                    from config import get_openai_api_key
+                                    api_key = get_openai_api_key()
+                                    if not api_key:
+                                        st.error("OpenAI APIキーが設定されていません")
+                                        continue
+                                except Exception as api_error:
+                                    st.error(f"APIキー取得エラー: {api_error}")
                                     continue
-                            except Exception as api_error:
-                                st.error(f"APIキー取得エラー: {api_error}")
-                                continue
-                            
-                            pdf_records = parse_pdf_handwritten(content, filename)
-                            records += pdf_records
-                            # 商品情報の抽出状況を確認
-                            if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
-                                st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
-                        st.success(f"{filename} の解析が完了しました")
-                    except Exception as e:
-                        st.error(f"{filename} の解析に失敗しました: {e}")
-                        st.error(f"詳細エラー: {str(e)}")
-                        # 本番環境での追加情報
-                        if is_production():
-                            st.info("本番環境でのトラブルシューティング:")
-                            st.info("1. Render Secrets FilesでOPENAI_API_KEYが正しく設定されているか確認")
-                            st.info("2. アプリケーションを再デプロイして環境変数を反映")
-                            st.info("3. Renderのログで詳細なエラー情報を確認")
+                                
+                                pdf_records = parse_pdf_handwritten(content, filename)
+                                records += pdf_records
+                                # 商品情報の抽出状況を確認
+                                if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
+                                    st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
+                            st.success(f"{filename} の解析が完了しました")
+                        except Exception as e:
+                            st.error(f"{filename} の解析に失敗しました: {e}")
+                            st.error(f"詳細エラー: {str(e)}")
+                            # 本番環境での追加情報
+                            if is_production():
+                                st.info("本番環境でのトラブルシューティング:")
+                                st.info("1. Render Secrets FilesでOPENAI_API_KEYが正しく設定されているか確認")
+                                st.info("2. アプリケーションを再デプロイして環境変数を反映")
+                                st.info("3. Renderのログで詳細なエラー情報を確認")
+            else:
+                st.info("📝 すべてのファイルが既に解析済みです。新しいファイルをアップロードしてください。")
     else:
         # 編集済みの場合は既存のデータを表示
         st.info("📝 データが編集されています。ファイルを再アップロードすると再解析されます。")
