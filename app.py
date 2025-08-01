@@ -1007,6 +1007,7 @@ if st.session_state.get("authentication_status"):
         if st.button("🔄 解析済みファイルをリセット", key="reset_processed_files", help="解析済みファイルの履歴をクリアします"):
             st.session_state.processed_files = set()
             st.session_state.data_edited = False
+            st.session_state.parsed_records = []  # 解析済みデータもクリア
             st.success("解析済みファイルをリセットしました。")
             st.rerun()
 
@@ -1021,9 +1022,16 @@ if st.session_state.get("authentication_status"):
     if 'processed_files' not in st.session_state:
         st.session_state.processed_files = set()
     
+    # 解析済みデータの状態管理
+    if 'parsed_records' not in st.session_state:
+        st.session_state.parsed_records = []
+    
     # 編集済みの場合は再解析をスキップ
     if not st.session_state.data_edited:
-        # LINE注文データをrecordsに追加
+        # 既存の解析済みデータを取得
+        records = st.session_state.parsed_records.copy()
+        
+        # LINE注文データをrecordsに追加（まだ追加されていない場合のみ）
         line_orders = get_line_orders_for_user(username)
         processed_line_orders = [order for order in line_orders if order.get("processed", False)]
         
@@ -1059,40 +1067,44 @@ if st.session_state.get("authentication_status"):
                     
                     st.markdown("---")
         
+        # LINE注文データをrecordsに追加（まだ追加されていない場合のみ）
+        existing_line_sources = {record.get("data_source", "") for record in records}
         for order in processed_line_orders:
-            # 処理済みのLINE注文データをrecordsに追加
-            image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
-            if os.path.exists(image_path):
-                try:
-                    # OpenAI APIで解析済みデータを取得
-                    parsed_data = parse_line_order_with_openai(
-                        image_path, 
-                        order['sender_name'], 
-                        order.get('message_text', ''),
-                        order['order_date'] # 受信日時を渡す
-                    )
-                    
-                    delivery_date = parsed_data.get("delivery_date", "")
-                    items = parsed_data.get("items", [])
-                    
-                    for item in items:
-                        record = {
-                            "order_id": item.get("order_id", ""),
-                            "order_date": order['order_date'],  # Webアプリでの受信日を使用
-                            "delivery_date": delivery_date,
-                            "partner_name": parsed_data.get("partner_name", order['sender_name']),
-                            "product_code": item.get("product_code", ""),
-                            "product_name": item.get("product_name", ""),
-                            "quantity": item.get("quantity", ""),
-                            "unit": item.get("unit", ""),
-                            "unit_price": item.get("unit_price", ""),
-                            "amount": item.get("amount", ""),
-                            "remark": item.get("remark", ""),
-                            "data_source": f"LINE注文_{order['timestamp']}"
-                        }
-                        records.append(record)
-                except Exception as e:
-                    st.warning(f"LINE注文データの読み込みに失敗: {e}")
+            line_source = f"LINE注文_{order['timestamp']}"
+            if line_source not in existing_line_sources:
+                # 処理済みのLINE注文データをrecordsに追加
+                image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+                if os.path.exists(image_path):
+                    try:
+                        # OpenAI APIで解析済みデータを取得
+                        parsed_data = parse_line_order_with_openai(
+                            image_path, 
+                            order['sender_name'], 
+                            order.get('message_text', ''),
+                            order['order_date'] # 受信日時を渡す
+                        )
+                        
+                        delivery_date = parsed_data.get("delivery_date", "")
+                        items = parsed_data.get("items", [])
+                        
+                        for item in items:
+                            record = {
+                                "order_id": item.get("order_id", ""),
+                                "order_date": order['order_date'],  # Webアプリでの受信日を使用
+                                "delivery_date": delivery_date,
+                                "partner_name": parsed_data.get("partner_name", order['sender_name']),
+                                "product_code": item.get("product_code", ""),
+                                "product_name": item.get("product_name", ""),
+                                "quantity": item.get("quantity", ""),
+                                "unit": item.get("unit", ""),
+                                "unit_price": item.get("unit_price", ""),
+                                "amount": item.get("amount", ""),
+                                "remark": item.get("remark", ""),
+                                "data_source": line_source
+                            }
+                            records.append(record)
+                    except Exception as e:
+                        st.warning(f"LINE注文データの読み込みに失敗: {e}")
         
         if uploaded_files:
             # 新しいファイルのみを処理
@@ -1170,12 +1182,17 @@ if st.session_state.get("authentication_status"):
                                 st.info("3. Renderのログで詳細なエラー情報を確認")
             else:
                 st.info("📝 すべてのファイルが既に解析済みです。新しいファイルをアップロードしてください。")
+        
+        # 解析済みデータをセッションに保存
+        st.session_state.parsed_records = records
     else:
         # 編集済みの場合は既存のデータを表示
         st.info("📝 データが編集されています。ファイルを再アップロードすると再解析されます。")
         if st.button("🔄 データを再読み込み", key="reload_data"):
             st.session_state.data_edited = False
             st.rerun()
+        # 編集済みの場合も既存のデータを使用
+        records = st.session_state.parsed_records.copy()
 
     # レコードが存在する場合（空でも表示）
     if records:        
@@ -1269,6 +1286,8 @@ if st.session_state.get("authentication_status"):
                     success, message = delete_processed_line_orders()
                     if success:
                         st.success(message)
+                        # セッションの解析済みデータもクリア
+                        st.session_state.parsed_records = []
                         st.rerun()
                     else:
                         st.error(message)
