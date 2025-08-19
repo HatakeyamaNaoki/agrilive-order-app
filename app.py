@@ -1076,7 +1076,24 @@ if st.session_state.get("authentication_status"):
                 # 注意: 処理済みデータの再解析は行わない（APIキー不要）
                 # 代わりに、処理済みデータの存在のみを記録
                 st.info(f"処理済みLINE注文データ: {order['sender_name']} - {order['order_date']}")
-                # 実際のデータは既に解析済みなので、ここではスキップ
+                
+                # 処理済みデータをrecordsに追加（ダミーデータとして）
+                # 実際の解析データは既に完了しているため、基本的な情報のみ追加
+                record = {
+                    "order_id": f"LINE_{order['timestamp']}",
+                    "order_date": order['order_date'],
+                    "delivery_date": order['order_date'],  # 受信日を納品日として使用
+                    "partner_name": order['sender_name'],
+                    "product_code": "",
+                    "product_name": "LINE注文データ（解析済み）",
+                    "quantity": "",
+                    "unit": "",
+                    "unit_price": "",
+                    "amount": "",
+                    "remark": f"LINE注文 - {order['timestamp']}",
+                    "data_source": line_source
+                }
+                records.append(record)
         
         if uploaded_files:
             # 新しいファイルのみを処理
