@@ -43,7 +43,8 @@ def save_line_order_data(line_account, sender_name, image_data, message_text="")
             "timestamp": timestamp,
             "message_text": message_text,
             "image_filename": f"line_order_{timestamp}.png",
-            "processed": False
+            "processed": False,
+            "parsed_data": None  # 解析結果を保存するフィールドを追加
         }
         
         # 画像データを保存
@@ -66,6 +67,32 @@ def save_line_order_data(line_account, sender_name, image_data, message_text="")
         return True, "LINE注文データを保存しました。"
     except Exception as e:
         return False, f"LINE注文データ保存エラー: {e}"
+
+def save_parsed_line_order_data(timestamp, parsed_data):
+    """
+    LINE注文の解析結果を保存
+    """
+    try:
+        orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+        if not os.path.exists(orders_file):
+            return False, "注文データファイルが見つかりません"
+        
+        with open(orders_file, "r", encoding="utf-8") as f:
+            orders = json.load(f)
+        
+        # 指定されたタイムスタンプの注文を更新
+        for order in orders:
+            if order['timestamp'] == timestamp:
+                order['parsed_data'] = parsed_data
+                order['processed'] = True
+                break
+        
+        with open(orders_file, "w", encoding="utf-8") as f:
+            json.dump(orders, f, ensure_ascii=False, indent=4)
+        
+        return True, "解析結果を保存しました"
+    except Exception as e:
+        return False, f"解析結果保存エラー: {e}"
 
 def get_line_orders_for_user(email):
     """
@@ -845,18 +872,10 @@ if st.session_state.get("authentication_status"):
                                             order['order_date'] # 受信日時を渡す
                                         )
                                         
-                                        # 注文を処理済みにマーク
-                                        orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
-                                        with open(orders_file, "r", encoding="utf-8") as f:
-                                            all_orders = json.load(f)
-                                        
-                                        for order_item in all_orders:
-                                            if order_item['timestamp'] == order['timestamp']:
-                                                order_item['processed'] = True
-                                                break
-                                        
-                                        with open(orders_file, "w", encoding="utf-8") as f:
-                                            json.dump(all_orders, f, ensure_ascii=False, indent=4)
+                                        # 解析結果を保存
+                                        success, message = save_parsed_line_order_data(order['timestamp'], parsed_data)
+                                        if not success:
+                                            st.error(f"解析結果の保存に失敗: {message}")
                                         
                                         processed_count += 1
                                     else:
@@ -937,18 +956,10 @@ if st.session_state.get("authentication_status"):
                                         }
                                         records.append(record)
                                     
-                                    # 注文を処理済みにマーク
-                                    orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
-                                    with open(orders_file, "r", encoding="utf-8") as f:
-                                        all_orders = json.load(f)
-                                    
-                                    for order_item in all_orders:
-                                        if order_item['timestamp'] == order['timestamp']:
-                                            order_item['processed'] = True
-                                            break
-                                    
-                                    with open(orders_file, "w", encoding="utf-8") as f:
-                                        json.dump(all_orders, f, ensure_ascii=False, indent=4)
+                                    # 解析結果を保存
+                                    success, message = save_parsed_line_order_data(order['timestamp'], parsed_data)
+                                    if not success:
+                                        st.error(f"解析結果の保存に失敗: {message}")
                                     
                                     st.success("LINE注文の解析が完了しました！")
                                     st.rerun()
@@ -1073,27 +1084,48 @@ if st.session_state.get("authentication_status"):
             line_source = f"LINE注文_{order['timestamp']}"
             if line_source not in existing_line_sources:
                 # 処理済みのLINE注文データをrecordsに追加
-                # 注意: 処理済みデータの再解析は行わない（APIキー不要）
-                # 代わりに、処理済みデータの存在のみを記録
                 st.info(f"処理済みLINE注文データ: {order['sender_name']} - {order['order_date']}")
                 
-                # 処理済みデータをrecordsに追加（ダミーデータとして）
-                # 実際の解析データは既に完了しているため、基本的な情報のみ追加
-                record = {
-                    "order_id": f"LINE_{order['timestamp']}",
-                    "order_date": order['order_date'],
-                    "delivery_date": order['order_date'],  # 受信日を納品日として使用
-                    "partner_name": order['sender_name'],
-                    "product_code": "",
-                    "product_name": "LINE注文データ（解析済み）",
-                    "quantity": "",
-                    "unit": "",
-                    "unit_price": "",
-                    "amount": "",
-                    "remark": f"LINE注文 - {order['timestamp']}",
-                    "data_source": line_source
-                }
-                records.append(record)
+                # 保存された解析結果を取得
+                parsed_data = order.get('parsed_data')
+                if parsed_data:
+                    # 解析結果から商品情報を取得
+                    delivery_date = parsed_data.get("delivery_date", order['order_date'])
+                    items = parsed_data.get("items", [])
+                    
+                    for item in items:
+                        record = {
+                            "order_id": f"LINE_{order['timestamp']}",
+                            "order_date": order['order_date'],
+                            "delivery_date": delivery_date,
+                            "partner_name": parsed_data.get("partner_name", order['sender_name']),
+                            "product_code": item.get("product_code", ""),
+                            "product_name": item.get("product_name", ""),
+                            "quantity": item.get("quantity", ""),
+                            "unit": item.get("unit", ""),
+                            "unit_price": item.get("unit_price", ""),
+                            "amount": item.get("amount", ""),
+                            "remark": item.get("remark", ""),
+                            "data_source": line_source
+                        }
+                        records.append(record)
+                else:
+                    # 解析結果がない場合はダミーデータを追加
+                    record = {
+                        "order_id": f"LINE_{order['timestamp']}",
+                        "order_date": order['order_date'],
+                        "delivery_date": order['order_date'],
+                        "partner_name": order['sender_name'],
+                        "product_code": "",
+                        "product_name": "LINE注文データ（解析結果なし）",
+                        "quantity": "",
+                        "unit": "",
+                        "unit_price": "",
+                        "amount": "",
+                        "remark": f"LINE注文 - {order['timestamp']}",
+                        "data_source": line_source
+                    }
+                    records.append(record)
         
         if uploaded_files:
             # 新しいファイルのみを処理
