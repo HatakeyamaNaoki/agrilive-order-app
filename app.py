@@ -1073,38 +1073,10 @@ if st.session_state.get("authentication_status"):
             line_source = f"LINE注文_{order['timestamp']}"
             if line_source not in existing_line_sources:
                 # 処理済みのLINE注文データをrecordsに追加
-                image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
-                if os.path.exists(image_path):
-                    try:
-                        # OpenAI APIで解析済みデータを取得
-                        parsed_data = parse_line_order_with_openai(
-                            image_path, 
-                            order['sender_name'], 
-                            order.get('message_text', ''),
-                            order['order_date'] # 受信日時を渡す
-                        )
-                        
-                        delivery_date = parsed_data.get("delivery_date", "")
-                        items = parsed_data.get("items", [])
-                        
-                        for item in items:
-                            record = {
-                                "order_id": item.get("order_id", ""),
-                                "order_date": order['order_date'],  # Webアプリでの受信日を使用
-                                "delivery_date": delivery_date,
-                                "partner_name": parsed_data.get("partner_name", order['sender_name']),
-                                "product_code": item.get("product_code", ""),
-                                "product_name": item.get("product_name", ""),
-                                "quantity": item.get("quantity", ""),
-                                "unit": item.get("unit", ""),
-                                "unit_price": item.get("unit_price", ""),
-                                "amount": item.get("amount", ""),
-                                "remark": item.get("remark", ""),
-                                "data_source": line_source
-                            }
-                            records.append(record)
-                    except Exception as e:
-                        st.warning(f"LINE注文データの読み込みに失敗: {e}")
+                # 注意: 処理済みデータの再解析は行わない（APIキー不要）
+                # 代わりに、処理済みデータの存在のみを記録
+                st.info(f"処理済みLINE注文データ: {order['sender_name']} - {order['order_date']}")
+                # 実際のデータは既に解析済みなので、ここではスキップ
         
         if uploaded_files:
             # 新しいファイルのみを処理
