@@ -1026,14 +1026,14 @@ if st.session_state.get("authentication_status"):
     if 'parsed_records' not in st.session_state:
         st.session_state.parsed_records = []
     
+    # LINE注文データを取得（スコープ外でも使用するため、ここで定義）
+    line_orders = get_line_orders_for_user(username)
+    processed_line_orders = [order for order in line_orders if order.get("processed", False)]
+    
     # 編集済みの場合は再解析をスキップ
     if not st.session_state.data_edited:
         # 既存の解析済みデータを取得
         records = st.session_state.parsed_records.copy()
-        
-        # LINE注文データをrecordsに追加（まだ追加されていない場合のみ）
-        line_orders = get_line_orders_for_user(username)
-        processed_line_orders = [order for order in line_orders if order.get("processed", False)]
         
         # 全データ表示機能を追加
         if processed_line_orders:
