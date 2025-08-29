@@ -40,22 +40,23 @@ def parse_iporter(file, filename=None):
                 break
             row = rows[idx]
             # 商品名が空白ならそのブロックはそれ以上出力不要！
-            if len(row) < 54 or not row[46].strip():
+            # 配列範囲チェックを修正: len(row) > 55 に変更
+            if len(row) <= 55 or not row[46].strip():
                 break
 
-            # データ取得
+            # データ取得（安全な配列アクセス）
             record = {
                 "order_id": order_id,
                 "order_date": order_date,
                 "delivery_date": delivery_date,
                 "partner_name": partner_name,
-                "product_code": row[44].strip(),
-                "product_name": row[46].strip(),
-                "quantity": row[47].strip(),
-                "unit": row[48].strip(),
-                "unit_price": row[51].replace("円", "").replace(",", "").strip(),
-                "amount": row[53].replace("円", "").replace(",", "").strip(),
-                "remark": row[55].strip(),
+                "product_code": row[44].strip() if len(row) > 44 else "",
+                "product_name": row[46].strip() if len(row) > 46 else "",
+                "quantity": row[47].strip() if len(row) > 47 else "",
+                "unit": row[48].strip() if len(row) > 48 else "",
+                "unit_price": row[51].replace("円", "").replace(",", "").strip() if len(row) > 51 else "",
+                "amount": row[53].replace("円", "").replace(",", "").strip() if len(row) > 53 else "",
+                "remark": row[55].strip() if len(row) > 55 else "",
                 "data_source": filename if filename else ""
             }
             records.append(record)
