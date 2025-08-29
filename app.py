@@ -401,8 +401,46 @@ def detect_csv_type(content_bytes):
     debug_log.append("判定: unknown")
     return 'unknown', None, debug_log
 
+def validate_email(email):
+    """
+    メールアドレスの形式を検証する
+    """
+    import re
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(pattern, email):
+        return False, "有効なメールアドレスを入力してください"
+    return True, "メールアドレスは有効です"
+
+def validate_password(password):
+    """
+    パスワードの強度を検証する
+    """
+    if len(password) < 8:
+        return False, "パスワードは8文字以上である必要があります"
+    
+    if not any(c.isupper() for c in password):
+        return False, "パスワードには大文字が含まれる必要があります"
+    
+    if not any(c.islower() for c in password):
+        return False, "パスワードには小文字が含まれる必要があります"
+    
+    if not any(c.isdigit() for c in password):
+        return False, "パスワードには数字が含まれる必要があります"
+    
+    return True, "パスワードは有効です"
+
 def add_user(email, name, company, password):
     import os
+    
+    # メールアドレス形式チェック
+    is_valid_email, email_message = validate_email(email)
+    if not is_valid_email:
+        return False, email_message
+    
+    # パスワード強度チェック
+    is_valid_pw, pw_message = validate_password(password)
+    if not is_valid_pw:
+        return False, pw_message
     
     # 動的ユーザー情報を読み込み
     dynamic_users = load_dynamic_users()
@@ -414,7 +452,8 @@ def add_user(email, name, company, password):
     if email in all_users['credentials']['usernames']:
         return False, "このメールアドレスは既に登録されています。"
     
-    hashed_pw = stauth.Hasher.hash(password)
+    # 正しいハッシュ化方法
+    hashed_pw = stauth.Hasher([password]).generate()[0]
     
     # 動的ユーザー情報に追加
     dynamic_users["users"][email] = {
