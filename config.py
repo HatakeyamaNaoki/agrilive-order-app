@@ -1,6 +1,10 @@
 import os
 import json
+import logging
 from dotenv import load_dotenv
+
+# ロガーの設定
+logger = logging.getLogger(__name__)
 
 # 環境変数ファイルを読み込み（ローカル開発時のみ）
 if not os.getenv('RENDER'):
@@ -45,29 +49,41 @@ def get_openai_api_key():
                             break
                 
                 if not api_key:
-                    print("Secret Filesパス確認:")
-                    for path in secret_paths:
-                        print(f"  {path}: {os.path.exists(path)}")
-                    
-                    # ルートディレクトリのファイル一覧を確認
-                    root_files = [f for f in os.listdir('.') if os.path.isfile(f)]
-                    print(f"ルートディレクトリのファイル: {root_files}")
+                    if os.getenv("DEBUG") == "1":
+                        print("Secret Filesパス確認:")
+                        for path in secret_paths:
+                            print(f"  {path}: {os.path.exists(path)}")
+                        
+                        # ルートディレクトリのファイル一覧を確認
+                        root_files = [f for f in os.listdir('.') if os.path.isfile(f)]
+                        print(f"ルートディレクトリのファイル: {root_files}")
+                    else:
+                        print("Secret Filesパス確認中...")
                     
             except Exception as e:
                 print(f"Secret Files読み込みエラー: {e}")
         
-        # すべての環境変数を確認（機密情報は隠す）
-        all_env_vars = {k: '***' if 'KEY' in k or 'SECRET' in k or 'PASSWORD' in k else v 
-            for k, v in os.environ.items()}
-        print(f"利用可能な環境変数: {all_env_vars}")
+        # デバッグモードでのみ環境変数を表示
+        if os.getenv("DEBUG") == "1":
+            # すべての環境変数を確認（機密情報は隠す）
+            all_env_vars = {k: '***' if 'KEY' in k or 'SECRET' in k or 'PASSWORD' in k else v 
+                for k, v in os.environ.items()}
+            print(f"利用可能な環境変数: {all_env_vars}")
+        else:
+            print("環境変数確認完了")
         
         if not api_key:
-            # 利用可能な環境変数を確認
-            env_vars = {k: v for k, v in os.environ.items() if 'OPENAI' in k or 'API' in k}
-            print(f"OpenAI関連環境変数: {env_vars}")
+            # デバッグモードでのみ詳細情報を表示
+            if os.getenv("DEBUG") == "1":
+                env_vars = {k: v for k, v in os.environ.items() if 'OPENAI' in k or 'API' in k}
+                print(f"OpenAI関連環境変数: {env_vars}")
             raise Exception("本番環境でOPENAI_API_KEYが設定されていません。Render Secrets Filesを確認してください。")
         
-        print(f"APIキー取得成功: {api_key[:8]}...{api_key[-4:] if len(api_key) > 12 else '***'}")
+        # デバッグモードでのみ機密情報を表示
+        if os.getenv("DEBUG") == "1":
+            print(f"APIキー取得成功: {api_key[:8]}...{api_key[-4:] if len(api_key) > 12 else '***'}")
+        else:
+            print("APIキー取得成功")
         return api_key
     
     # ローカル開発環境の場合
@@ -115,9 +131,12 @@ def get_line_channel_access_token():
                             break
                 
                 if not token:
-                    print("LINE Token Secret Filesパス確認:")
-                    for path in secret_paths:
-                        print(f"  {path}: {os.path.exists(path)}")
+                    if os.getenv("DEBUG") == "1":
+                        print("LINE Token Secret Filesパス確認:")
+                        for path in secret_paths:
+                            print(f"  {path}: {os.path.exists(path)}")
+                    else:
+                        print("LINE Token Secret Filesパス確認中...")
                     
             except Exception as e:
                 print(f"LINE Token Secret Files読み込みエラー: {e}")
@@ -125,7 +144,11 @@ def get_line_channel_access_token():
         if not token:
             raise Exception("本番環境でLINE_CHANNEL_ACCESS_TOKENが設定されていません。Render Secrets Filesを確認してください。")
         
-        print(f"LINE Token取得成功: {token[:8]}...{token[-4:] if len(token) > 12 else '***'}")
+        # デバッグモードでのみ機密情報を表示
+        if os.getenv("DEBUG") == "1":
+            print(f"LINE Token取得成功: {token[:8]}...{token[-4:] if len(token) > 12 else '***'}")
+        else:
+            print("LINE Token取得成功")
         return token
     
     # ローカル開発環境の場合

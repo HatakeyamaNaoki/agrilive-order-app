@@ -32,13 +32,17 @@
 pip install -r requirements.txt
 ```
 
-### 2. OpenAI APIキーの設定
+### 2. 環境変数の設定
 ```bash
-# 環境変数として設定
+# OpenAI APIキー
 export OPENAI_API_KEY=your_openai_api_key_here
+
+# デバッグモード（機密情報のログ出力を有効化）
+export DEBUG=1
 
 # または .env ファイルを作成
 echo "OPENAI_API_KEY=your_openai_api_key_here" > .env
+echo "DEBUG=1" >> .env
 ```
 
 ### 3. 認証情報の設定
