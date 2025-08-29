@@ -41,7 +41,40 @@ export OPENAI_API_KEY=your_openai_api_key_here
 echo "OPENAI_API_KEY=your_openai_api_key_here" > .env
 ```
 
-### 3. アプリケーションの起動
+### 3. 認証情報の設定
+```bash
+# credentials.json ファイルを作成
+# 以下の形式で設定してください：
+
+{
+  "credentials": {
+    "usernames": {
+      "admin@example.com": {
+        "email": "admin@example.com",
+        "name": "管理者",
+        "company": "会社名",
+        "password": "$2b$12$hashed_password_here"
+      }
+    }
+  },
+  "cookie": {
+    "expiry_days": 30,
+    "key": "some_signature_key",
+    "name": "some_cookie_name"
+  },
+  "preauthorized": {
+    "emails": ["admin@example.com"]
+  }
+}
+
+# パスワードのハッシュ化方法：
+# Pythonで以下のコードを実行
+import bcrypt
+hashed = bcrypt.hashpw("your_password".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+print(hashed)
+```
+
+### 4. アプリケーションの起動
 ```bash
 streamlit run app.py
 ```

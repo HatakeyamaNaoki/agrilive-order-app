@@ -3,7 +3,6 @@ import streamlit_authenticator as stauth
 import json
 import pandas as pd
 import io
-import datetime
 import pytz
 from config import get_openai_api_key, is_production, load_config, get_line_channel_access_token
 from parser_infomart import parse_infomart
@@ -721,7 +720,7 @@ if st.session_state.get("authentication_status"):
                 st.download_button(
                     label="ユーザー一覧をCSVダウンロード",
                     data=csv,
-                    file_name=f"ユーザー一覧_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    file_name=f"ユーザー一覧_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv"
                 )
             else:
@@ -777,6 +776,33 @@ if st.session_state.get("authentication_status"):
                 st.sidebar.json(dynamic_users)
         except Exception as e:
             st.sidebar.error(f"動的ユーザー読み込みエラー: {e}")
+        
+        # ファイルパス情報を表示
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("ファイルパス情報")
+        import os
+        current_dir = os.getcwd()
+        st.sidebar.info(f"現在のディレクトリ: {current_dir}")
+        
+        # 主要ファイルの存在確認
+        files_to_check = [
+            "dynamic_users.json",
+            "credentials.json", 
+            "app.py"
+        ]
+        
+        for file in files_to_check:
+            file_path = os.path.join(current_dir, file)
+            exists = os.path.exists(file_path)
+            status = "✅ 存在" if exists else "❌ 不存在"
+            st.sidebar.info(f"{file}: {status}")
+            
+            if exists:
+                try:
+                    size = os.path.getsize(file_path)
+                    st.sidebar.info(f"  - サイズ: {size} bytes")
+                except:
+                    pass
 
     # OpenAI APIキー設定（開発環境のみ）
     if not is_production():

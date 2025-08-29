@@ -3,6 +3,13 @@
 .env.local
 .env.production
 
+# 機密情報ファイル
+credentials.json
+dynamic_users.json
+*.key
+*.pem
+*.p12
+
 # Python
 __pycache__/
 *.py[cod]
