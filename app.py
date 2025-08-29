@@ -452,8 +452,9 @@ def add_user(email, name, company, password):
     if email in all_users['credentials']['usernames']:
         return False, "このメールアドレスは既に登録されています。"
     
-    # 正しいハッシュ化方法
-    hashed_pw = stauth.Hasher([password]).generate()[0]
+    # 正しいハッシュ化方法（bcrypt直接使用）
+    import bcrypt
+    hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
     # 動的ユーザー情報に追加
     dynamic_users["users"][email] = {
