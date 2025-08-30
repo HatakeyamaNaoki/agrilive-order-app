@@ -533,6 +533,7 @@ def load_dynamic_users():
             
             # ファイルが存在しない場合は空の構造を返す
             print("動的ユーザーファイルが見つかりません（新規作成）")
+            print(f"Secret Filesパス確認: {secret_paths}")
             return {"users": {}}
                 
         except Exception as e:
@@ -611,14 +612,22 @@ def merge_credentials(base_credentials, dynamic_users):
     """
     merged_credentials = base_credentials.copy()
     
+    # デバッグ情報
+    print(f"基本認証情報ユーザー数: {len(base_credentials['credentials']['usernames'])}")
+    print(f"動的ユーザー数: {len(dynamic_users.get('users', {}))}")
+    
     # 動的ユーザーを基本認証情報に追加
     for email, user_info in dynamic_users.get("users", {}).items():
+        print(f"動的ユーザー追加: {email} - {user_info.get('name', 'N/A')}")
         merged_credentials["credentials"]["usernames"][email] = {
             "email": email,
             "name": user_info.get("name", ""),
             "company": user_info.get("company", ""),
             "password": user_info.get("password", "")
         }
+    
+    print(f"統合後ユーザー数: {len(merged_credentials['credentials']['usernames'])}")
+    print(f"統合後ユーザー一覧: {list(merged_credentials['credentials']['usernames'].keys())}")
     
     return merged_credentials
 
@@ -669,6 +678,20 @@ credentials_config = merge_credentials(base_credentials, dynamic_users)
 total_users = len(credentials_config['credentials']['usernames'])
 dynamic_count = len(dynamic_users.get('users', {}))
 print(f"認証情報統合: 総ユーザー数={total_users}, 動的ユーザー数={dynamic_count}")
+
+# 詳細デバッグ情報
+print("=== 認証情報詳細 ===")
+print(f"基本認証ユーザー: {list(base_credentials['credentials']['usernames'].keys())}")
+print(f"動的ユーザー: {list(dynamic_users.get('users', {}).keys())}")
+print(f"統合後ユーザー: {list(credentials_config['credentials']['usernames'].keys())}")
+
+# 動的ユーザーの詳細情報
+for email, user_info in dynamic_users.get('users', {}).items():
+    print(f"動的ユーザー詳細 - {email}:")
+    print(f"  名前: {user_info.get('name')}")
+    print(f"  会社: {user_info.get('company')}")
+    print(f"  パスワード長: {len(user_info.get('password', ''))}")
+    print(f"  パスワード先頭: {user_info.get('password', '')[:20]}...")
 
 authenticator = stauth.Authenticate(
     credentials=credentials_config['credentials'],
@@ -774,6 +797,14 @@ if not st.session_state.get("authentication_status"):
             st.sidebar.info(f"時刻: {result['timestamp']}")
 
 # --- ログインフォームを描画（必ずここで表示！） ---
+# デバッグ情報を表示
+if st.session_state.get('debug_info'):
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔍 認証デバッグ情報")
+    st.sidebar.info(f"**認証状態**: {st.session_state.get('authentication_status')}")
+    st.sidebar.info(f"**ユーザー名**: {st.session_state.get('username')}")
+    st.sidebar.info(f"**名前**: {st.session_state.get('name')}")
+
 authenticator.login(
     location='main',
     fields={
