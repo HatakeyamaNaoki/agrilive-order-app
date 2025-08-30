@@ -29,8 +29,13 @@ if not os.path.exists(LINE_ORDERS_DIR):
 
 # --- 認証情報ファイル管理 ---
 APP_DIR = Path(__file__).resolve().parent
-# 環境変数で上書きできるように
-DEFAULT_DATA_DIR = os.getenv("APP_DATA_DIR", str(APP_DIR / "data"))
+
+# 本番だけ APP_DATA_DIR を使い、それ以外は常に APP_DIR/data
+if os.getenv("APP_DATA_DIR") and os.getenv("ENV") == "production":
+    DEFAULT_DATA_DIR = os.getenv("APP_DATA_DIR")
+else:
+    DEFAULT_DATA_DIR = str(APP_DIR / "data")
+
 CRED_PATH = Path(DEFAULT_DATA_DIR) / "credentials.yml"
 LOCK_PATH = CRED_PATH.with_suffix(".lock")
 
@@ -648,16 +653,7 @@ def add_user_to_yaml(email, name, company, password_hash):
         print(f"エラー詳細: {traceback.format_exc()}")
         return False
 
-def ensure_basic_users(config) -> bool:
-    """基本ユーザーが存在することを確認し、必要に応じて追加"""
-    changed = False
-    users = config['credentials']['usernames']
-    for email, data in BASIC_USERS.items():
-        if email not in users:
-            print(f"基本ユーザーを追加: {email}")
-            users[email] = data
-            changed = True
-    return changed
+# ensure_basic_users関数は削除 - 初期化ロジックの変更により不要
 
 def check_user_exists_in_yaml(email):
     """YAMLファイルでユーザーの存在を確認する"""
@@ -743,20 +739,17 @@ st.title("受注集計アプリ（アグリライブ）")
 print("=== 認証情報初期化開始 ===")
 
 try:
-    # YAMLファイルから認証情報を読み込み
-    cfg = load_credentials_from_yaml()
-    
-    # 基本ユーザーが存在することを確認（初回作成時のみ保存）
-    if ensure_basic_users(cfg):
-        print("基本ユーザーを追加しました")
-        # 初回作成時のみ保存（ファイルが存在しない場合）
-        if not CRED_PATH.exists():
-            print("初回作成のため、基本ユーザーを保存します")
-            save_credentials_to_yaml(cfg)
-        else:
-            print("ファイルが既に存在するため、基本ユーザーの追加は保存しません")
-    
-    credentials_config = cfg
+    if not CRED_PATH.exists():
+        # 初回のみ：seed + BASIC_USERS を作って保存
+        print("初回作成：基本ユーザーを含む設定を作成します")
+        cfg = _seed_config()
+        cfg['credentials']['usernames'].update(BASIC_USERS)
+        save_credentials_to_yaml(cfg)  # ← 必ず保存
+        credentials_config = cfg
+    else:
+        # 2回目以降：純粋に読むだけ（副作用なし）
+        print("既存ファイルから読み込みます")
+        credentials_config = load_credentials_from_yaml()
     print("=== 認証情報初期化完了 ===")
     
     # デバッグ情報
@@ -1654,9 +1647,16 @@ if not st.session_state.get("authentication_status"):
     
     # YAMLファイル情報
     st.sidebar.info(f"**YAMLパス**: {CRED_PATH}")
+    st.sidebar.info(f"**絶対パス**: {CRED_PATH.resolve()}")
     if CRED_PATH.exists():
         import time
         st.sidebar.info(f"**最終更新**: {time.ctime(CRED_PATH.stat().st_mtime)}")
+    
+    # ディレクトリ一覧（混線発見用）
+    try:
+        st.sidebar.info(f"**ディレクトリ内容**: {[p.name for p in CRED_PATH.parent.iterdir()]}")
+    except Exception as _:
+        pass
     
     # YAML認証情報（ソース・オブ・トゥルース）
     try:
