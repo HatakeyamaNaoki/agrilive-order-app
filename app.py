@@ -563,9 +563,11 @@ def load_credentials():
     with open("credentials.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
-# 基本認証情報と動的ユーザー情報を統合
+# 基本認証情報を読み込み
 base_credentials = load_credentials()
-dynamic_users = load_users_from_db()
+
+# 動的ユーザー情報は後で読み込む（関数定義後に移動）
+dynamic_users = {"users": {}}
 credentials_config = merge_credentials(base_credentials, dynamic_users)
 
 # デバッグ情報
@@ -1615,3 +1617,9 @@ def check_user_exists_in_db(email):
     except Exception as e:
         print(f"データベース確認エラー: {e}")
         return False
+
+# 関数定義後に動的ユーザーを読み込む
+print("=== 動的ユーザー読み込み開始 ===")
+dynamic_users = load_users_from_db()
+credentials_config = merge_credentials(base_credentials, dynamic_users)
+print("=== 動的ユーザー読み込み完了 ===")
