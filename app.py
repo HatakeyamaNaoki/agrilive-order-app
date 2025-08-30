@@ -25,8 +25,17 @@ if not os.path.exists(LINE_ORDERS_DIR):
 
 def get_file_lock(file_path, timeout=10):
     """
-    ファイルロックを取得する
+    ファイルロックを取得する（Render環境では無効化）
     """
+    import os
+    
+    # Render環境ではファイルロックを無効化（Read-only file system対策）
+    if os.getenv('RENDER'):
+        class DummyLock:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+        return DummyLock()
+    
     try:
         import filelock
         lock_file = f"{file_path}.lock"
@@ -508,11 +517,11 @@ def load_dynamic_users():
     # 本番環境（Render）の場合
     if os.getenv('RENDER'):
         try:
-            # Secret Filesから読み込みを試行
+            # Secret Filesから読み込みを試行（Read-only file system対策）
             secret_paths = [
-                '/etc/secrets/dynamic_users.json',
                 'dynamic_users.json',
-                './dynamic_users.json'
+                './dynamic_users.json',
+                '/tmp/dynamic_users.json'  # 一時ディレクトリを使用
             ]
             
             for path in secret_paths:
@@ -563,11 +572,11 @@ def save_dynamic_users(dynamic_users):
     # 本番環境（Render）の場合
     if os.getenv('RENDER'):
         try:
-            # Secret Filesに保存を試行
+            # Secret Filesに保存を試行（Read-only file system対策）
             secret_paths = [
-                '/etc/secrets/dynamic_users.json',
                 'dynamic_users.json',
-                './dynamic_users.json'
+                './dynamic_users.json',
+                '/tmp/dynamic_users.json'  # 一時ディレクトリを使用
             ]
             
             for path in secret_paths:
@@ -582,6 +591,9 @@ def save_dynamic_users(dynamic_users):
                     return True
                 except Exception as path_error:
                     print(f"パス {path} への保存失敗: {path_error}")
+                    print(f"エラータイプ: {type(path_error).__name__}")
+                    if "Read-only file system" in str(path_error):
+                        print(f"Read-only file systemエラー: {path} は書き込み不可")
                     continue
             
             # すべてのパスで失敗した場合
