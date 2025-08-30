@@ -572,102 +572,7 @@ if st.button("🔄 データを更新", key="refresh_data"):
 st.image("会社ロゴ.png", width=220)
 st.title("受注集計アプリ（アグリライブ）")
 
-# --- サイドバー ---
-if not st.session_state.get("authentication_status"):
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("新規アカウント追加")
-    new_email = st.sidebar.text_input("メールアドレス", key="new_email")
-    new_name = st.sidebar.text_input("お名前", key="new_name")
-    new_company = st.sidebar.text_input("会社名", key="new_company")
-    new_password = st.sidebar.text_input("パスワード", type="password", key="new_pw")
-    view_select = st.sidebar.radio(
-        "ご確認ください",
-        ("表示しない", "利用規約", "プライバシーポリシー"),
-        index=0
-    )
-    agree_terms = st.sidebar.checkbox("利用規約・プライバシーポリシーに同意します", key="agree_terms")
-
-    if st.sidebar.button("追加"):
-        # デバッグ情報をセッション状態に保存
-        debug_info = {
-            "timestamp": datetime.now().strftime("%H:%M:%S"),
-            "email": new_email,
-            "name": new_name,
-            "company": new_company,
-            "password_length": len(new_password) if new_password else 0,
-            "agree_terms": agree_terms,
-            "all_fields_filled": bool(new_email and new_name and new_company and new_password)
-        }
-        st.session_state.debug_info = debug_info
-        
-        if not agree_terms:
-            st.sidebar.warning("利用規約・プライバシーポリシーに同意が必要です。")
-        elif new_email and new_name and new_company and new_password:
-            st.sidebar.info("デバッグ: ユーザー追加処理を開始")
-            ok, msg = add_user(new_email, new_name, new_company, new_password)
-            
-            # 結果をセッション状態に保存
-            st.session_state.registration_result = {
-                "success": ok,
-                "message": msg,
-                "timestamp": datetime.now().strftime("%H:%M:%S")
-            }
-            
-            if ok:
-                st.sidebar.success(msg)
-                st.sidebar.info("アカウントが追加されました。ページを再読み込みしてログインしてください。")
-                # ページを再読み込み
-                st.rerun()
-            else:
-                st.sidebar.error(msg)
-        else:
-            st.sidebar.warning("すべて入力してください。")
-            st.session_state.registration_result = {
-                "success": False,
-                "message": "入力項目が不足しています",
-                "timestamp": datetime.now().strftime("%H:%M:%S")
-            }
-
-    # デバッグ情報表示エリア
-    if hasattr(st.session_state, 'debug_info') and st.session_state.debug_info:
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("🔍 デバッグ情報")
-        debug = st.session_state.debug_info
-        st.sidebar.info(f"**時刻**: {debug['timestamp']}")
-        st.sidebar.info(f"**メール**: {debug['email']}")
-        st.sidebar.info(f"**名前**: {debug['name']}")
-        st.sidebar.info(f"**会社**: {debug['company']}")
-        st.sidebar.info(f"**パスワード長**: {debug['password_length']}")
-        st.sidebar.info(f"**利用規約同意**: {debug['agree_terms']}")
-        st.sidebar.info(f"**全項目入力**: {debug['all_fields_filled']}")
-        
-        # デバッグ情報クリアボタン
-        if st.sidebar.button("デバッグ情報をクリア", key="clear_debug"):
-            st.session_state.debug_info = None
-            st.session_state.registration_result = None
-            st.rerun()
-
-    # 登録結果表示エリア
-    if hasattr(st.session_state, 'registration_result') and st.session_state.registration_result:
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("📋 登録結果")
-        result = st.session_state.registration_result
-        if result['success']:
-            st.sidebar.success(f"✅ {result['message']}")
-            st.sidebar.info(f"時刻: {result['timestamp']}")
-        else:
-            st.sidebar.error(f"❌ {result['message']}")
-            st.sidebar.info(f"時刻: {result['timestamp']}")
-
 # --- ログインフォームを描画（必ずここで表示！） ---
-# デバッグ情報を表示
-if st.session_state.get('debug_info'):
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🔍 認証デバッグ情報")
-    st.sidebar.info(f"**認証状態**: {st.session_state.get('authentication_status')}")
-    st.sidebar.info(f"**ユーザー名**: {st.session_state.get('username')}")
-    st.sidebar.info(f"**名前**: {st.session_state.get('name')}")
-
 authenticator.login(
     location='main',
     fields={
@@ -1625,3 +1530,105 @@ print("=== 動的ユーザー読み込み開始 ===")
 dynamic_users = load_users_from_db()
 credentials_config = merge_credentials(base_credentials, dynamic_users)
 print("=== 動的ユーザー読み込み完了 ===")
+
+# --- サイドバー（関数定義後に配置） ---
+if not st.session_state.get("authentication_status"):
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("新規アカウント追加")
+    new_email = st.sidebar.text_input("メールアドレス", key="new_email")
+    new_name = st.sidebar.text_input("お名前", key="new_name")
+    new_company = st.sidebar.text_input("会社名", key="new_company")
+    new_password = st.sidebar.text_input("パスワード", type="password", key="new_pw")
+    view_select = st.sidebar.radio(
+        "ご確認ください",
+        ("表示しない", "利用規約", "プライバシーポリシー"),
+        index=0
+    )
+    agree_terms = st.sidebar.checkbox("利用規約・プライバシーポリシーに同意します", key="agree_terms")
+
+    if st.sidebar.button("追加"):
+        # デバッグ情報をセッション状態に保存
+        debug_info = {
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "email": new_email,
+            "name": new_name,
+            "company": new_company,
+            "password_length": len(new_password) if new_password else 0,
+            "agree_terms": agree_terms,
+            "all_fields_filled": bool(new_email and new_name and new_company and new_password)
+        }
+        st.session_state.debug_info = debug_info
+        
+        if not agree_terms:
+            st.sidebar.warning("利用規約・プライバシーポリシーに同意が必要です。")
+        elif new_email and new_name and new_company and new_password:
+            st.sidebar.info("デバッグ: ユーザー追加処理を開始")
+            ok, msg = add_user(new_email, new_name, new_company, new_password)
+            
+            # 結果をセッション状態に保存
+            st.session_state.registration_result = {
+                "success": ok,
+                "message": msg,
+                "timestamp": datetime.now().strftime("%H:%M:%S")
+            }
+            
+            if ok:
+                st.sidebar.success(msg)
+                st.sidebar.info("アカウントが追加されました。ページを再読み込みしてログインしてください。")
+                # ページを再読み込み
+                st.rerun()
+            else:
+                st.sidebar.error(msg)
+        else:
+            st.sidebar.warning("すべて入力してください。")
+            st.session_state.registration_result = {
+                "success": False,
+                "message": "入力項目が不足しています",
+                "timestamp": datetime.now().strftime("%H:%M:%S")
+            }
+
+    # デバッグ情報表示エリア
+    if hasattr(st.session_state, 'debug_info') and st.session_state.debug_info:
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🔍 デバッグ情報")
+        debug = st.session_state.debug_info
+        st.sidebar.info(f"**時刻**: {debug['timestamp']}")
+        st.sidebar.info(f"**メール**: {debug['email']}")
+        st.sidebar.info(f"**名前**: {debug['name']}")
+        st.sidebar.info(f"**会社**: {debug['company']}")
+        st.sidebar.info(f"**パスワード長**: {debug['password_length']}")
+        st.sidebar.info(f"**利用規約同意**: {debug['agree_terms']}")
+        st.sidebar.info(f"**全項目入力**: {debug['all_fields_filled']}")
+        
+        # デバッグ情報クリアボタン
+        if st.sidebar.button("デバッグ情報をクリア", key="clear_debug"):
+            st.session_state.debug_info = None
+            st.session_state.registration_result = None
+            st.rerun()
+
+    # 登録結果表示エリア
+    if hasattr(st.session_state, 'registration_result') and st.session_state.registration_result:
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("📋 登録結果")
+        result = st.session_state.registration_result
+        if result['success']:
+            st.sidebar.success(f"✅ {result['message']}")
+            st.sidebar.info(f"時刻: {result['timestamp']}")
+        else:
+            st.sidebar.error(f"❌ {result['message']}")
+            st.sidebar.info(f"時刻: {result['timestamp']}")
+
+# --- ログイン画面の下に規約を表示（ここで順序調整） ---
+if not st.session_state.get("authentication_status"):
+    st.markdown("---")
+    if 'view_select' not in locals():
+        view_select = "表示しない"  # セッション直後の再実行対策
+    if view_select == "利用規約":
+        html = load_docx_html("利用規約.docx")
+        st.markdown("### 利用規約")
+        st.markdown(html, unsafe_allow_html=True)
+    elif view_select == "プライバシーポリシー":
+        html = load_docx_html("プライバシーポリシー.docx")
+        st.markdown("### プライバシーポリシー")
+        st.markdown(html, unsafe_allow_html=True)
+    # 何も選択しなければ何も出さない
