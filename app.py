@@ -513,6 +513,167 @@ def load_credentials():
 
 # 基本認証情報を読み込み（関数定義後に移動）
 base_credentials = load_credentials()
+
+# --- SQLiteデータベース管理 ---
+def init_database():
+    """SQLiteデータベースを初期化する"""
+    import sqlite3
+    import os
+    
+    # データベースファイルパス
+    db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # ユーザーテーブル作成
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            email TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            company TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    print(f"データベース初期化完了: {db_path}")
+
+def add_user_to_db(email, name, company, password_hash):
+    """データベースにユーザーを追加する"""
+    import sqlite3
+    import os
+    
+    # データベース初期化
+    init_database()
+    
+    db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO users (email, name, company, password_hash)
+            VALUES (?, ?, ?, ?)
+        ''', (email, name, company, password_hash))
+        
+        conn.commit()
+        conn.close()
+        print(f"ユーザー追加成功（DB）: {email}")
+        return True
+    except sqlite3.IntegrityError:
+        print(f"ユーザー {email} は既に存在します")
+        return False
+    except Exception as e:
+        print(f"データベースエラー: {e}")
+        return False
+
+def load_users_from_db():
+    """データベースから全ユーザーを読み込む"""
+    import sqlite3
+    import os
+    
+    # データベース初期化
+    init_database()
+    
+    db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT email, name, company, password_hash FROM users')
+        users = cursor.fetchall()
+        
+        conn.close()
+        
+        # streamlit-authenticator形式に変換
+        dynamic_users = {"users": {}}
+        for email, name, company, password_hash in users:
+            dynamic_users["users"][email] = {
+                "email": email,
+                "name": name,
+                "company": company,
+                "password": password_hash
+            }
+        
+        print(f"データベースから読み込み: {len(users)} ユーザー")
+        return dynamic_users
+    except Exception as e:
+        print(f"データベース読み込みエラー: {e}")
+        return {"users": {}}
+
+def check_user_exists_in_db(email):
+    """データベースでユーザーの存在を確認する"""
+    import sqlite3
+    import os
+    
+    # データベース初期化
+    init_database()
+    
+    db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT email FROM users WHERE email = ?', (email,))
+        result = cursor.fetchone()
+        
+        conn.close()
+        return result is not None
+    except Exception as e:
+        print(f"データベース確認エラー: {e}")
+        return False
+
+def add_user(email, name, company, password):
+    """
+    動的にユーザーを追加する（SQLiteデータベース使用）
+    """
+    import os
+    
+    print(f"add_user開始: email={email}, name={name}, company={company}")
+    
+    # メールアドレス形式チェック
+    is_valid_email, email_message = validate_email(email)
+    print(f"メールバリデーション: {is_valid_email}, {email_message}")
+    if not is_valid_email:
+        return False, email_message
+    
+    # パスワード強度チェック
+    is_valid_pw, pw_message = validate_password(password)
+    print(f"パスワードバリデーション: {is_valid_pw}, {pw_message}")
+    if not is_valid_pw:
+        return False, pw_message
+    
+    # データベースで重複チェック
+    if check_user_exists_in_db(email):
+        print(f"重複エラー: {email} は既に登録済み")
+        return False, "このメールアドレスは既に登録されています。"
+    
+    # 基本認証情報も確認（重複チェック）
+    base_credentials = load_credentials()
+    if email in base_credentials['credentials']['usernames']:
+        print(f"重複エラー: {email} は基本認証情報に既に存在")
+        return False, "このメールアドレスは既に登録されています。"
+    
+    # 正しいハッシュ化方法（bcrypt直接使用）
+    import bcrypt
+    hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    
+    # データベースにユーザーを追加
+    save_result = add_user_to_db(email, name, company, hashed_pw)
+    print(f"保存結果: {save_result}")
+    if save_result:
+        print(f"ユーザー追加成功: {email}")
+        return True, "アカウントを追加しました。"
+    else:
+        print(f"ユーザー追加失敗: {email}")
+        return False, "アカウントの保存に失敗しました。"
 st.set_page_config(page_title="受注集計アプリ（アグリライブ）", layout="wide")
 
 # 自動更新機能
@@ -523,8 +684,38 @@ st.image("会社ロゴ.png", width=220)
 st.title("受注集計アプリ（アグリライブ）")
 
 # 認証情報を初期化（関数定義後に移動）
-# 一時的に基本認証情報のみを使用
-credentials_config = base_credentials
+# 動的ユーザーを含む認証情報を使用
+print("=== 動的ユーザー読み込み開始 ===")
+dynamic_users = load_users_from_db()
+credentials_config = merge_credentials(base_credentials, dynamic_users)
+print("=== 動的ユーザー読み込み完了 ===")
+
+# デバッグ情報
+total_users = len(credentials_config['credentials']['usernames'])
+dynamic_count = len(dynamic_users.get('users', {}))
+print(f"認証情報統合: 総ユーザー数={total_users}, 動的ユーザー数={dynamic_count}")
+
+# 詳細デバッグ情報
+print("=== 認証情報詳細 ===")
+print(f"基本認証ユーザー: {list(base_credentials['credentials']['usernames'].keys())}")
+print(f"動的ユーザー: {list(dynamic_users.get('users', {}).keys())}")
+print(f"統合後ユーザー: {list(credentials_config['credentials']['usernames'].keys())}")
+
+# 基本認証情報の形式を確認
+print("=== 基本認証情報の形式確認 ===")
+for email, user_data in base_credentials['credentials']['usernames'].items():
+    print(f"基本ユーザー - {email}:")
+    print(f"  データ型: {type(user_data)}")
+    print(f"  データ内容: {user_data}")
+
+# 動的ユーザーの詳細情報
+for email, user_data in dynamic_users.get('users', {}).items():
+    print(f"動的ユーザー詳細 - {email}:")
+    print(f"  名前: {user_data.get('name', 'N/A')}")
+    print(f"  会社: {user_data.get('company', 'N/A')}")
+    print(f"  パスワード長: {len(user_data.get('password', ''))}")
+    print(f"  パスワード先頭: {user_data.get('password', '')[:20]}...")
+
 authenticator = stauth.Authenticate(
     credentials=credentials_config['credentials'],
     cookie_name=credentials_config['cookie']['name'],
@@ -1325,166 +1516,7 @@ elif st.session_state.get("authentication_status") is False:
 elif st.session_state.get("authentication_status") is None:
     st.warning("ログイン情報を入力してください。")
 
-# --- SQLiteデータベース管理 ---
-def init_database():
-    """SQLiteデータベースを初期化する"""
-    import sqlite3
-    import os
-    
-    # データベースファイルパス
-    db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
-    
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    # ユーザーテーブル作成
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            email TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            company TEXT NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-    print(f"データベース初期化完了: {db_path}")
 
-def add_user_to_db(email, name, company, password_hash):
-    """データベースにユーザーを追加する"""
-    import sqlite3
-    import os
-    
-    # データベース初期化
-    init_database()
-    
-    db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
-    
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT INTO users (email, name, company, password_hash)
-            VALUES (?, ?, ?, ?)
-        ''', (email, name, company, password_hash))
-        
-        conn.commit()
-        conn.close()
-        print(f"ユーザー追加成功（DB）: {email}")
-        return True
-    except sqlite3.IntegrityError:
-        print(f"ユーザー {email} は既に存在します")
-        return False
-    except Exception as e:
-        print(f"データベースエラー: {e}")
-        return False
-
-def load_users_from_db():
-    """データベースから全ユーザーを読み込む"""
-    import sqlite3
-    import os
-    
-    # データベース初期化
-    init_database()
-    
-    db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
-    
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT email, name, company, password_hash FROM users')
-        users = cursor.fetchall()
-        
-        conn.close()
-        
-        # streamlit-authenticator形式に変換
-        dynamic_users = {"users": {}}
-        for email, name, company, password_hash in users:
-            dynamic_users["users"][email] = {
-                "email": email,
-                "name": name,
-                "company": company,
-                "password": password_hash
-            }
-        
-        print(f"データベースから読み込み: {len(users)} ユーザー")
-        return dynamic_users
-    except Exception as e:
-        print(f"データベース読み込みエラー: {e}")
-        return {"users": {}}
-
-def check_user_exists_in_db(email):
-    """データベースでユーザーの存在を確認する"""
-    import sqlite3
-    import os
-    
-    # データベース初期化
-    init_database()
-    
-    db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
-    
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT email FROM users WHERE email = ?', (email,))
-        result = cursor.fetchone()
-        
-        conn.close()
-        return result is not None
-    except Exception as e:
-        print(f"データベース確認エラー: {e}")
-        return False
-
-def add_user(email, name, company, password):
-    """
-    動的にユーザーを追加する（SQLiteデータベース使用）
-    """
-    import os
-    
-    print(f"add_user開始: email={email}, name={name}, company={company}")
-    
-    # メールアドレス形式チェック
-    is_valid_email, email_message = validate_email(email)
-    print(f"メールバリデーション: {is_valid_email}, {email_message}")
-    if not is_valid_email:
-        return False, email_message
-    
-    # パスワード強度チェック
-    is_valid_pw, pw_message = validate_password(password)
-    print(f"パスワードバリデーション: {is_valid_pw}, {pw_message}")
-    if not is_valid_pw:
-        return False, pw_message
-    
-    # データベースで重複チェック
-    if check_user_exists_in_db(email):
-        print(f"重複エラー: {email} は既に登録済み")
-        return False, "このメールアドレスは既に登録されています。"
-    
-    # 基本認証情報も確認（重複チェック）
-    base_credentials = load_credentials()
-    if email in base_credentials['credentials']['usernames']:
-        print(f"重複エラー: {email} は基本認証情報に既に存在")
-        return False, "このメールアドレスは既に登録されています。"
-    
-    # 正しいハッシュ化方法（bcrypt直接使用）
-    import bcrypt
-    hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    
-    # データベースにユーザーを追加
-    save_result = add_user_to_db(email, name, company, hashed_pw)
-    print(f"保存結果: {save_result}")
-    if save_result:
-        print(f"ユーザー追加成功: {email}")
-        return True, "アカウントを追加しました。"
-    else:
-        print(f"ユーザー追加失敗: {email}")
-        return False, "アカウントの保存に失敗しました。"
 
 # 関数定義後に動的ユーザーを読み込む
 print("=== 動的ユーザー読み込み開始 ===")
