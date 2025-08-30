@@ -33,16 +33,46 @@ LOCK_PATH = CRED_PATH.with_suffix(".lock")
 
 def _atomic_write_text(path: Path, text: str):
     """原子的にテキストファイルを書き込む"""
-    tmp = Path(tempfile.gettempdir()) / (path.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(text)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)  # 原子的置換
+    try:
+        print(f"原子的書き込み開始: {path}")
+        tmp = Path(tempfile.gettempdir()) / (path.name + ".tmp")
+        print(f"一時ファイル: {tmp}")
+        
+        # ディレクトリが存在しない場合は作成
+        path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        
+        print(f"一時ファイル書き込み完了: {tmp}")
+        os.replace(tmp, path)  # 原子的置換
+        print(f"原子的置換完了: {path}")
+        
+    except Exception as e:
+        print(f"原子的書き込みエラー: {e}")
+        # 一時ファイルをクリーンアップ
+        if tmp.exists():
+            try:
+                tmp.unlink()
+                print(f"一時ファイル削除: {tmp}")
+            except:
+                pass
+        raise
 
 def _with_creds_lock(timeout=5):
     """認証情報ファイルのロックを取得"""
-    return filelock.FileLock(str(LOCK_PATH), timeout=timeout)
+    try:
+        print(f"ファイルロック取得開始: {LOCK_PATH}")
+        # ロックディレクトリを作成
+        LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        lock = filelock.FileLock(str(LOCK_PATH), timeout=timeout)
+        print(f"ファイルロック取得完了: {LOCK_PATH}")
+        return lock
+    except Exception as e:
+        print(f"ファイルロック取得エラー: {e}")
+        raise
 
 def get_file_lock(file_path, timeout=10):
     """
@@ -584,26 +614,49 @@ def load_credentials_from_yaml():
 def save_credentials_to_yaml(config) -> bool:
     """認証情報をYAMLファイルに原子的に保存"""
     try:
+        print("認証情報保存開始")
         with _with_creds_lock():
+            print("YAML形式に変換中...")
             text = yaml.safe_dump(config, allow_unicode=True, sort_keys=True)
+            print(f"YAMLテキスト長: {len(text)} 文字")
+            
+            print("原子的書き込み実行中...")
             _atomic_write_text(CRED_PATH, text)
         
         print(f"認証情報保存成功: {CRED_PATH}")
         return True
     except Exception as e:
         print(f"YAMLファイル保存エラー: {e}")
-        return False
+        import traceback
+        print(f"保存エラー詳細: {traceback.format_exc()}")
+        
+        # フォールバック: 簡易保存を試行
+        try:
+            print("フォールバック保存を試行中...")
+            CRED_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(CRED_PATH, "w", encoding="utf-8") as f:
+                yaml.safe_dump(config, f, allow_unicode=True, sort_keys=True)
+            print("フォールバック保存成功")
+            return True
+        except Exception as fallback_e:
+            print(f"フォールバック保存も失敗: {fallback_e}")
+            return False
 
 def add_user_to_yaml(email, name, company, password_hash):
     """YAMLファイルにユーザーを追加する（ロック付き）"""
     print(f"add_user_to_yaml開始: {email}")
     
     try:
+        print("ファイルロックを取得中...")
         with _with_creds_lock():
+            print("ファイルロック取得完了")
+            
+            print("認証情報を読み込み中...")
             cfg = load_credentials_from_yaml()  # ここで例外なら UI にそのまま出す
             print(f"読み込み時ユーザー数: {len(cfg['credentials']['usernames'])}")
             print(f"読み込み時ユーザー: {list(cfg['credentials']['usernames'].keys())}")
             
+            print("ユーザーを追加中...")
             cfg['credentials']['usernames'][email] = {
                 "email": email, "name": name, "company": company, "password": password_hash
             }
@@ -611,16 +664,25 @@ def add_user_to_yaml(email, name, company, password_hash):
             print(f"追加後ユーザー数: {len(cfg['credentials']['usernames'])}")
             print(f"追加後ユーザー: {list(cfg['credentials']['usernames'].keys())}")
             
+            print("認証情報を保存中...")
             ok = save_credentials_to_yaml(cfg)
             if not ok:
+                print("保存に失敗しました")
                 return False
+            
+            print("保存完了")
+        
+        print("ファイルロック解放完了")
         
         # 保存後に読み直して UI 側のキャッシュも更新
+        print("セッション状態を更新中...")
         st.session_state['credentials_config'] = load_credentials_from_yaml()
         print(f"ユーザー追加成功（YAML）: {email}")
         return True
     except Exception as e:
         print(f"YAMLユーザー追加エラー: {e}")
+        import traceback
+        print(f"エラー詳細: {traceback.format_exc()}")
         return False
 
 def ensure_basic_users(config) -> bool:
