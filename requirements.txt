@@ -16,3 +16,5 @@ google-cloud-vision>=3.4.0
 google-auth>=2.17.0
 # File locking for concurrent access
 filelock>=3.13.0
+# YAML file support
+PyYAML>=6.0

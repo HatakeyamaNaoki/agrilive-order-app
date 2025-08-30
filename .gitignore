@@ -6,6 +6,7 @@
 # 機密情報ファイル
 credentials.json
 dynamic_users.json
+data/
 *.key
 *.pem
 *.p12

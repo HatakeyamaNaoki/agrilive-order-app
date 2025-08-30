@@ -514,163 +514,131 @@ def load_credentials():
 # 基本認証情報を読み込み（関数定義後に移動）
 base_credentials = load_credentials()
 
-# --- SQLiteデータベース管理 ---
-def init_database():
-    """SQLiteデータベースを初期化する"""
-    import sqlite3
-    import os
-    
-    # データベースファイルパス
-    # Render環境では永続化可能なパスを使用
-    if os.getenv('RENDER'):
-        # Render環境では /opt/render/project/src を使用
-        db_path = '/opt/render/project/src/users.db'
-        # ディレクトリが存在しない場合は作成
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    else:
-        db_path = 'users.db'
-    
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    # ユーザーテーブル作成
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            email TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            company TEXT NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-    print(f"データベース初期化完了: {db_path}")
+# --- YAMLファイルベースのユーザー管理 ---
+import yaml
+from yaml import SafeLoader, safe_dump
 
-def add_user_to_db(email, name, company, password_hash):
-    """データベースにユーザーを追加する"""
-    import sqlite3
+def get_credentials_file_path():
+    """認証情報ファイルのパスを取得"""
+    import os
+    # data/credentials.ymlを使用（.gitignoreで除外）
+    file_path = 'data/credentials.yml'
+    # ディレクトリが存在しない場合は作成
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    return file_path
+
+def load_credentials_from_yaml():
+    """YAMLファイルから認証情報を読み込む"""
     import os
     
-    # データベース初期化
-    init_database()
-    
-    # Render環境では永続化可能なパスを使用
-    if os.getenv('RENDER'):
-        db_path = '/opt/render/project/src/users.db'
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    else:
-        db_path = 'users.db'
+    file_path = get_credentials_file_path()
+    print(f"認証情報ファイルパス: {file_path}")
+    print(f"認証情報ファイル存在: {os.path.exists(file_path)}")
     
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+        with open(file_path, "r", encoding="utf-8") as f:
+            config = yaml.load(f, Loader=SafeLoader) or {}
         
-        cursor.execute('''
-            INSERT INTO users (email, name, company, password_hash)
-            VALUES (?, ?, ?, ?)
-        ''', (email, name, company, password_hash))
-        
-        conn.commit()
-        conn.close()
-        print(f"ユーザー追加成功（DB）: {email}")
-        return True
-    except sqlite3.IntegrityError:
-        print(f"ユーザー {email} は既に存在します")
-        return False
-    except Exception as e:
-        print(f"データベースエラー: {e}")
-        return False
-
-def load_users_from_db():
-    """データベースから全ユーザーを読み込む"""
-    import sqlite3
-    import os
-    
-    # データベース初期化
-    init_database()
-    
-    # Render環境では永続化可能なパスを使用
-    if os.getenv('RENDER'):
-        db_path = '/opt/render/project/src/users.db'
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    else:
-        db_path = 'users.db'
-    
-    print(f"データベースパス: {db_path}")
-    print(f"データベースファイル存在: {os.path.exists(db_path)}")
-    
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # テーブル存在確認
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-        table_exists = cursor.fetchone() is not None
-        print(f"usersテーブル存在: {table_exists}")
-        
-        if table_exists:
-            cursor.execute('SELECT email, name, company, password_hash FROM users')
-            users = cursor.fetchall()
-            print(f"データベースから読み込み: {len(users)} ユーザー")
-            
-            # 各ユーザーの詳細を表示
-            for i, (email, name, company, password_hash) in enumerate(users):
-                print(f"  ユーザー{i+1}: {email} ({name}, {company})")
-        else:
-            users = []
-            print("usersテーブルが存在しません")
-        
-        conn.close()
-        
-        # streamlit-authenticator形式に変換
-        dynamic_users = {"users": {}}
-        for email, name, company, password_hash in users:
-            dynamic_users["users"][email] = {
-                "email": email,
-                "name": name,
-                "company": company,
-                "password": password_hash
+        # 基本構造がない場合は初期化
+        if 'credentials' not in config:
+            config = {
+                'credentials': {
+                    'usernames': {}
+                },
+                'cookie': {
+                    'expiry_days': 30,
+                    'key': 'some_signature_key',
+                    'name': 'some_cookie_name'
+                },
+                'preauthorized': {
+                    'emails': []
+                }
             }
         
-        return dynamic_users
+        users = config['credentials']['usernames']
+        print(f"YAMLファイルから読み込み: {len(users)} ユーザー")
+        
+        # 各ユーザーの詳細を表示
+        for email, user_data in users.items():
+            print(f"  ユーザー: {email} ({user_data.get('name', 'N/A')}, {user_data.get('company', 'N/A')})")
+        
+        return config
     except Exception as e:
-        print(f"データベース読み込みエラー: {e}")
-        return {"users": {}}
+        print(f"YAMLファイル読み込みエラー: {e}")
+        # エラーの場合は基本構造を返す
+        return {
+            'credentials': {
+                'usernames': {}
+            },
+            'cookie': {
+                'expiry_days': 30,
+                'key': 'some_signature_key',
+                'name': 'some_cookie_name'
+            },
+            'preauthorized': {
+                'emails': []
+            }
+        }
 
-def check_user_exists_in_db(email):
-    """データベースでユーザーの存在を確認する"""
-    import sqlite3
+def save_credentials_to_yaml(config):
+    """認証情報をYAMLファイルに保存"""
     import os
     
-    # データベース初期化
-    init_database()
-    
-    # Render環境では永続化可能なパスを使用
-    if os.getenv('RENDER'):
-        db_path = '/opt/render/project/src/users.db'
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    else:
-        db_path = 'users.db'
+    file_path = get_credentials_file_path()
     
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+        with open(file_path, "w", encoding="utf-8") as f:
+            safe_dump(config, f, allow_unicode=True, sort_keys=True)
         
-        cursor.execute('SELECT email FROM users WHERE email = ?', (email,))
-        result = cursor.fetchone()
-        
-        conn.close()
-        return result is not None
+        print(f"認証情報保存成功: {file_path}")
+        return True
     except Exception as e:
-        print(f"データベース確認エラー: {e}")
+        print(f"YAMLファイル保存エラー: {e}")
+        return False
+
+def add_user_to_yaml(email, name, company, password_hash):
+    """YAMLファイルにユーザーを追加する"""
+    import os
+    
+    print(f"add_user_to_yaml開始: {email}")
+    
+    try:
+        # 既存の認証情報を読み込み
+        config = load_credentials_from_yaml()
+        
+        # ユーザーを追加
+        config['credentials']['usernames'][email] = {
+            "email": email,
+            "name": name,
+            "company": company,
+            "password": password_hash
+        }
+        
+        # 認証情報を保存
+        save_result = save_credentials_to_yaml(config)
+        
+        if save_result:
+            print(f"ユーザー追加成功（YAML）: {email}")
+            return True
+        else:
+            print(f"ユーザー追加失敗（YAML）: {email}")
+            return False
+    except Exception as e:
+        print(f"YAMLユーザー追加エラー: {e}")
+        return False
+
+def check_user_exists_in_yaml(email):
+    """YAMLファイルでユーザーの存在を確認する"""
+    try:
+        config = load_credentials_from_yaml()
+        return email in config['credentials']['usernames']
+    except Exception as e:
+        print(f"YAMLユーザー確認エラー: {e}")
         return False
 
 def add_user(email, name, company, password):
     """
-    動的にユーザーを追加する（SQLiteデータベース使用）
+    動的にユーザーを追加する（YAMLファイル使用）
     """
     import os
     
@@ -688,8 +656,8 @@ def add_user(email, name, company, password):
     if not is_valid_pw:
         return False, pw_message
     
-    # データベースで重複チェック
-    if check_user_exists_in_db(email):
+    # YAMLファイルで重複チェック
+    if check_user_exists_in_yaml(email):
         print(f"重複エラー: {email} は既に登録済み")
         return False, "このメールアドレスは既に登録されています。"
     
@@ -703,8 +671,8 @@ def add_user(email, name, company, password):
     import bcrypt
     hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
-    # データベースにユーザーを追加
-    save_result = add_user_to_db(email, name, company, hashed_pw)
+    # YAMLファイルにユーザーを追加
+    save_result = add_user_to_yaml(email, name, company, hashed_pw)
     print(f"保存結果: {save_result}")
     if save_result:
         print(f"ユーザー追加成功: {email}")
@@ -722,33 +690,22 @@ st.image("会社ロゴ.png", width=220)
 st.title("受注集計アプリ（アグリライブ）")
 
 # 認証情報を初期化（関数定義後に移動）
-# 動的ユーザーを含む認証情報を使用
-print("=== 動的ユーザー読み込み開始 ===")
-dynamic_users = load_users_from_db()
-credentials_config = merge_credentials(base_credentials, dynamic_users)
-print("=== 動的ユーザー読み込み完了 ===")
+# YAMLファイルから認証情報を読み込み
+print("=== YAML認証情報読み込み開始 ===")
+credentials_config = load_credentials_from_yaml()
+print("=== YAML認証情報読み込み完了 ===")
 
 # デバッグ情報
 total_users = len(credentials_config['credentials']['usernames'])
-dynamic_count = len(dynamic_users.get('users', {}))
-print(f"認証情報統合: 総ユーザー数={total_users}, 動的ユーザー数={dynamic_count}")
+print(f"認証情報: 総ユーザー数={total_users}")
 
 # 詳細デバッグ情報
 print("=== 認証情報詳細 ===")
-print(f"基本認証ユーザー: {list(base_credentials['credentials']['usernames'].keys())}")
-print(f"動的ユーザー: {list(dynamic_users.get('users', {}).keys())}")
-print(f"統合後ユーザー: {list(credentials_config['credentials']['usernames'].keys())}")
+print(f"全ユーザー: {list(credentials_config['credentials']['usernames'].keys())}")
 
-# 基本認証情報の形式を確認
-print("=== 基本認証情報の形式確認 ===")
-for email, user_data in base_credentials['credentials']['usernames'].items():
-    print(f"基本ユーザー - {email}:")
-    print(f"  データ型: {type(user_data)}")
-    print(f"  データ内容: {user_data}")
-
-# 動的ユーザーの詳細情報
-for email, user_data in dynamic_users.get('users', {}).items():
-    print(f"動的ユーザー詳細 - {email}:")
+# 各ユーザーの詳細情報
+for email, user_data in credentials_config['credentials']['usernames'].items():
+    print(f"ユーザー詳細 - {email}:")
     print(f"  名前: {user_data.get('name', 'N/A')}")
     print(f"  会社: {user_data.get('company', 'N/A')}")
     print(f"  パスワード長: {len(user_data.get('password', ''))}")
