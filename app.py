@@ -727,13 +727,13 @@ if not st.session_state.get("authentication_status"):
                 # 成功時はrerunしない（デバッグ情報を保持）
             else:
                 st.sidebar.error(msg)
-            else:
-        st.sidebar.warning("すべて入力してください。")
-        st.session_state.registration_result = {
-            "success": False,
-            "message": "入力項目が不足しています",
-            "timestamp": datetime.now().strftime("%H:%M:%S")
-        }
+        else:
+            st.sidebar.warning("すべて入力してください。")
+            st.session_state.registration_result = {
+                "success": False,
+                "message": "入力項目が不足しています",
+                "timestamp": datetime.now().strftime("%H:%M:%S")
+            }
 
     # デバッグ情報表示エリア
     if hasattr(st.session_state, 'debug_info') and st.session_state.debug_info:
