@@ -563,9 +563,6 @@ def load_credentials():
     with open("credentials.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
-# データベース初期化
-init_database()
-
 # 基本認証情報と動的ユーザー情報を統合
 base_credentials = load_credentials()
 dynamic_users = load_users_from_db()
@@ -1536,6 +1533,9 @@ def add_user_to_db(email, name, company, password_hash):
     import sqlite3
     import os
     
+    # データベース初期化
+    init_database()
+    
     db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
     
     try:
@@ -1562,6 +1562,9 @@ def load_users_from_db():
     """データベースから全ユーザーを読み込む"""
     import sqlite3
     import os
+    
+    # データベース初期化
+    init_database()
     
     db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
     
@@ -1594,6 +1597,9 @@ def check_user_exists_in_db(email):
     """データベースでユーザーの存在を確認する"""
     import sqlite3
     import os
+    
+    # データベース初期化
+    init_database()
     
     db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
     
