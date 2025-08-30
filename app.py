@@ -523,8 +523,38 @@ st.image("会社ロゴ.png", width=220)
 st.title("受注集計アプリ（アグリライブ）")
 
 # 認証情報を初期化（関数定義後に移動）
-# 一時的に基本認証情報のみを使用
-credentials_config = base_credentials
+# 動的ユーザーを含む認証情報を使用
+print("=== 動的ユーザー読み込み開始 ===")
+dynamic_users = load_users_from_db()
+credentials_config = merge_credentials(base_credentials, dynamic_users)
+print("=== 動的ユーザー読み込み完了 ===")
+
+# デバッグ情報
+total_users = len(credentials_config['credentials']['usernames'])
+dynamic_count = len(dynamic_users.get('users', {}))
+print(f"認証情報統合: 総ユーザー数={total_users}, 動的ユーザー数={dynamic_count}")
+
+# 詳細デバッグ情報
+print("=== 認証情報詳細 ===")
+print(f"基本認証ユーザー: {list(base_credentials['credentials']['usernames'].keys())}")
+print(f"動的ユーザー: {list(dynamic_users.get('users', {}).keys())}")
+print(f"統合後ユーザー: {list(credentials_config['credentials']['usernames'].keys())}")
+
+# 基本認証情報の形式を確認
+print("=== 基本認証情報の形式確認 ===")
+for email, user_data in base_credentials['credentials']['usernames'].items():
+    print(f"基本ユーザー - {email}:")
+    print(f"  データ型: {type(user_data)}")
+    print(f"  データ内容: {user_data}")
+
+# 動的ユーザーの詳細情報
+for email, user_data in dynamic_users.get('users', {}).items():
+    print(f"動的ユーザー詳細 - {email}:")
+    print(f"  名前: {user_data.get('name', 'N/A')}")
+    print(f"  会社: {user_data.get('company', 'N/A')}")
+    print(f"  パスワード長: {len(user_data.get('password', ''))}")
+    print(f"  パスワード先頭: {user_data.get('password', '')[:20]}...")
+
 authenticator = stauth.Authenticate(
     credentials=credentials_config['credentials'],
     cookie_name=credentials_config['cookie']['name'],
@@ -1518,14 +1548,7 @@ for email, user_data in dynamic_users.get('users', {}).items():
     print(f"  パスワード長: {len(user_data.get('password', ''))}")
     print(f"  パスワード先頭: {user_data.get('password', '')[:20]}...")
 
-# 認証情報を再初期化（動的ユーザーを含む）
-authenticator = stauth.Authenticate(
-    credentials=credentials_config['credentials'],
-    cookie_name=credentials_config['cookie']['name'],
-    key=credentials_config['cookie']['key'],
-    expiry_days=credentials_config['cookie']['expiry_days'],
-    preauthorized=credentials_config['preauthorized']
-)
+
 
 # --- サイドバー（関数定義後に配置） ---
 if not st.session_state.get("authentication_status"):
