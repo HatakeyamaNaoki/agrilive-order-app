@@ -697,25 +697,74 @@ if not st.session_state.get("authentication_status"):
     agree_terms = st.sidebar.checkbox("利用規約・プライバシーポリシーに同意します", key="agree_terms")
 
     if st.sidebar.button("追加"):
-        # デバッグ情報を表示
-        st.sidebar.info(f"デバッグ: メール={new_email}, 名前={new_name}, 会社={new_company}, パスワード長={len(new_password) if new_password else 0}")
-        st.sidebar.info(f"デバッグ: 利用規約同意={agree_terms}")
+        # デバッグ情報をセッション状態に保存
+        debug_info = {
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "email": new_email,
+            "name": new_name,
+            "company": new_company,
+            "password_length": len(new_password) if new_password else 0,
+            "agree_terms": agree_terms,
+            "all_fields_filled": bool(new_email and new_name and new_company and new_password)
+        }
+        st.session_state.debug_info = debug_info
         
         if not agree_terms:
             st.sidebar.warning("利用規約・プライバシーポリシーに同意が必要です。")
         elif new_email and new_name and new_company and new_password:
             st.sidebar.info("デバッグ: ユーザー追加処理を開始")
             ok, msg = add_user(new_email, new_name, new_company, new_password)
-            st.sidebar.info(f"デバッグ: 結果={ok}, メッセージ={msg}")
+            
+            # 結果をセッション状態に保存
+            st.session_state.registration_result = {
+                "success": ok,
+                "message": msg,
+                "timestamp": datetime.now().strftime("%H:%M:%S")
+            }
+            
             if ok:
                 st.sidebar.success(msg)
-                # 成功時にフォームをクリア
-                st.rerun()
+                # 成功時はrerunしない（デバッグ情報を保持）
             else:
                 st.sidebar.error(msg)
+            else:
+        st.sidebar.warning("すべて入力してください。")
+        st.session_state.registration_result = {
+            "success": False,
+            "message": "入力項目が不足しています",
+            "timestamp": datetime.now().strftime("%H:%M:%S")
+        }
+
+    # デバッグ情報表示エリア
+    if hasattr(st.session_state, 'debug_info') and st.session_state.debug_info:
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🔍 デバッグ情報")
+        debug = st.session_state.debug_info
+        st.sidebar.info(f"**時刻**: {debug['timestamp']}")
+        st.sidebar.info(f"**メール**: {debug['email']}")
+        st.sidebar.info(f"**名前**: {debug['name']}")
+        st.sidebar.info(f"**会社**: {debug['company']}")
+        st.sidebar.info(f"**パスワード長**: {debug['password_length']}")
+        st.sidebar.info(f"**利用規約同意**: {debug['agree_terms']}")
+        st.sidebar.info(f"**全項目入力**: {debug['all_fields_filled']}")
+        
+        # デバッグ情報クリアボタン
+        if st.sidebar.button("デバッグ情報をクリア", key="clear_debug"):
+            st.session_state.debug_info = None
+            st.session_state.registration_result = None
+            st.rerun()
+
+    # 登録結果表示エリア
+    if hasattr(st.session_state, 'registration_result') and st.session_state.registration_result:
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("📋 登録結果")
+        result = st.session_state.registration_result
+        if result['success']:
+            st.sidebar.success(f"✅ {result['message']}")
+            st.sidebar.info(f"時刻: {result['timestamp']}")
         else:
-            st.sidebar.warning("すべて入力してください。")
-            st.sidebar.info(f"デバッグ: 未入力項目 - メール:{bool(new_email)}, 名前:{bool(new_name)}, 会社:{bool(new_company)}, パスワード:{bool(new_password)}")
+            st.sidebar.error(f"❌ {result['message']}")
+            st.sidebar.info(f"時刻: {result['timestamp']}")
 
 # --- ログインフォームを描画（必ずここで表示！） ---
 authenticator.login(
