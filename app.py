@@ -18,11 +18,31 @@ import os
 from datetime import datetime, timezone, timedelta
 import requests
 import sqlite3
+from pathlib import Path
+import tempfile
+import filelock
 
 # LINE注文データ管理用のディレクトリ
 LINE_ORDERS_DIR = "line_orders"
 if not os.path.exists(LINE_ORDERS_DIR):
     os.makedirs(LINE_ORDERS_DIR, exist_ok=True)
+
+# --- 認証情報ファイル管理 ---
+CRED_PATH = Path("data/credentials.yml")
+LOCK_PATH = CRED_PATH.with_suffix(".lock")
+
+def _atomic_write_text(path: Path, text: str):
+    """原子的にテキストファイルを書き込む"""
+    tmp = Path(tempfile.gettempdir()) / (path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)  # 原子的置換
+
+def _with_creds_lock(timeout=5):
+    """認証情報ファイルのロックを取得"""
+    return filelock.FileLock(str(LOCK_PATH), timeout=timeout)
 
 def get_file_lock(file_path, timeout=10):
     """
@@ -499,143 +519,120 @@ base_credentials = load_credentials()
 import yaml
 from yaml import SafeLoader, safe_dump
 
-def get_credentials_file_path():
-    """認証情報ファイルのパスを取得"""
-    import os
-    # data/credentials.ymlを使用（.gitignoreで除外）
-    file_path = 'data/credentials.yml'
-    # ディレクトリが存在しない場合は作成
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    return file_path
+# 基本ユーザー定義
+BASIC_USERS = {
+    'n.hatakeyama@agrilive.co.jp': {
+        'email': 'n.hatakeyama@agrilive.co.jp',
+        'name': '畠山 直己',
+        'company': 'アグリライブ株式会社',
+        'password': '$2b$12$uUoqP0QH.DBO2df028wtS.Vi91jYA4KLVulsatVAuFsY/m.9HWtku'
+    },
+    'hatake.hatake.hatake7@outlook.jp': {
+        'email': 'hatake.hatake.hatake7@outlook.jp',
+        'name': 'はたけやま',
+        'company': 'アグリライブ株式会社',
+        'password': '$2b$12$CBwB/tQCRJjyPEENHElWM.oKF69dzmSVREmoQ179JMnTvoayEAtPK'
+    }
+}
+
+def _seed_config():
+    """基本設定テンプレートを返す"""
+    return {
+        'credentials': {'usernames': {}},
+        'cookie': {'expiry_days': 30, 'key': 'some_signature_key', 'name': 'some_cookie_name'},
+        'preauthorized': {'emails': ['melsby@gmail.com']}
+    }
 
 def load_credentials_from_yaml():
-    """YAMLファイルから認証情報を読み込む"""
-    import os
+    """YAMLファイルから認証情報を読み込む（読み込み専用、副作用なし）"""
+    print(f"認証情報ファイルパス: {CRED_PATH}")
     
-    file_path = get_credentials_file_path()
-    print(f"認証情報ファイルパス: {file_path}")
-    print(f"認証情報ファイル存在: {os.path.exists(file_path)}")
+    # ディレクトリが存在しない場合は作成
+    CRED_PATH.parent.mkdir(parents=True, exist_ok=True)
     
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            config = yaml.load(f, Loader=SafeLoader) or {}
+    # 読み込み専用（保存の副作用を無くす）
+    with _with_creds_lock():
+        if not CRED_PATH.exists():
+            # 初回のみ seed を返す（ここでは保存しない）
+            print("認証情報ファイルが存在しないため、基本設定を返します")
+            cfg = _seed_config()
+            return cfg
         
-        # 基本構造がない場合は基本認証情報で初期化
-        if 'credentials' not in config or not config['credentials']['usernames']:
-            print("YAMLファイルが空または基本構造がないため、基本認証情報で初期化")
-            config = {
-                'credentials': {
-                    'usernames': {
-                        'n.hatakeyama@agrilive.co.jp': {
-                            'email': 'n.hatakeyama@agrilive.co.jp',
-                            'name': '畠山 直己',
-                            'company': 'アグリライブ株式会社',
-                            'password': '$2b$12$uUoqP0QH.DBO2df028wtS.Vi91jYA4KLVulsatVAuFsY/m.9HWtku'
-                        },
-                        'hatake.hatake.hatake7@outlook.jp': {
-                            'email': 'hatake.hatake.hatake7@outlook.jp',
-                            'name': 'はたけやま',
-                            'company': 'アグリライブ株式会社',
-                            'password': '$2b$12$CBwB/tQCRJjyPEENHElWM.oKF69dzmSVREmoQ179JMnTvoayEAtPK'
-                        }
-                    }
-                },
-                'cookie': {
-                    'expiry_days': 30,
-                    'key': 'some_signature_key',
-                    'name': 'some_cookie_name'
-                },
-                'preauthorized': {
-                    'emails': ['melsby@gmail.com']
-                }
-            }
-            # 初期化した設定を保存
-            save_credentials_to_yaml(config)
-        
-        users = config['credentials']['usernames']
-        print(f"YAMLファイルから読み込み: {len(users)} ユーザー")
-        
-        # 各ユーザーの詳細を表示
-        for email, user_data in users.items():
-            print(f"  ユーザー: {email} ({user_data.get('name', 'N/A')}, {user_data.get('company', 'N/A')})")
-        
-        return config
-    except Exception as e:
-        print(f"YAMLファイル読み込みエラー: {e}")
-        # エラーの場合は基本認証情報を返す
-        return {
-            'credentials': {
-                'usernames': {
-                    'n.hatakeyama@agrilive.co.jp': {
-                        'email': 'n.hatakeyama@agrilive.co.jp',
-                        'name': '畠山 直己',
-                        'company': 'アグリライブ株式会社',
-                        'password': '$2b$12$uUoqP0QH.DBO2df028wtS.Vi91jYA4KLVulsatVAuFsY/m.9HWtku'
-                    },
-                    'hatake.hatake.hatake7@outlook.jp': {
-                        'email': 'hatake.hatake.hatake7@outlook.jp',
-                        'name': 'はたけやま',
-                        'company': 'アグリライブ株式会社',
-                        'password': '$2b$12$CBwB/tQCRJjyPEENHElWM.oKF69dzmSVREmoQ179JMnTvoayEAtPK'
-                    }
-                }
-            },
-            'cookie': {
-                'expiry_days': 30,
-                'key': 'some_signature_key',
-                'name': 'some_cookie_name'
-            },
-            'preauthorized': {
-                'emails': ['melsby@gmail.com']
-            }
-        }
+        try:
+            with open(CRED_PATH, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+        except yaml.YAMLError as e:
+            # ここでテンプレに戻して返さない（上書き消失を防ぐ）
+            error_msg = f"credentials.yml の解析に失敗しました。構文エラーの可能性: {e}"
+            print(error_msg)
+            raise RuntimeError(error_msg)
+    
+    # 最低限の構造を保障（ここでも保存しない）
+    cfg.setdefault('credentials', {}).setdefault('usernames', {})
+    cfg.setdefault('cookie', {'expiry_days': 30, 'key': 'some_signature_key', 'name': 'some_cookie_name'})
+    cfg.setdefault('preauthorized', {'emails': ['melsby@gmail.com']})
+    
+    users = cfg['credentials']['usernames']
+    print(f"YAMLファイルから読み込み: {len(users)} ユーザー")
+    
+    # 各ユーザーの詳細を表示
+    for email, user_data in users.items():
+        print(f"  ユーザー: {email} ({user_data.get('name', 'N/A')}, {user_data.get('company', 'N/A')})")
+    
+    return cfg
 
-def save_credentials_to_yaml(config):
-    """認証情報をYAMLファイルに保存"""
-    import os
-    
-    file_path = get_credentials_file_path()
-    
+def save_credentials_to_yaml(config) -> bool:
+    """認証情報をYAMLファイルに原子的に保存"""
     try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            safe_dump(config, f, allow_unicode=True, sort_keys=True)
+        with _with_creds_lock():
+            text = yaml.safe_dump(config, allow_unicode=True, sort_keys=True)
+            _atomic_write_text(CRED_PATH, text)
         
-        print(f"認証情報保存成功: {file_path}")
+        print(f"認証情報保存成功: {CRED_PATH}")
         return True
     except Exception as e:
         print(f"YAMLファイル保存エラー: {e}")
         return False
 
 def add_user_to_yaml(email, name, company, password_hash):
-    """YAMLファイルにユーザーを追加する"""
-    import os
-    
+    """YAMLファイルにユーザーを追加する（ロック付き）"""
     print(f"add_user_to_yaml開始: {email}")
     
     try:
-        # 既存の認証情報を読み込み
-        config = load_credentials_from_yaml()
+        with _with_creds_lock():
+            cfg = load_credentials_from_yaml()  # ここで例外なら UI にそのまま出す
+            print(f"読み込み時ユーザー数: {len(cfg['credentials']['usernames'])}")
+            print(f"読み込み時ユーザー: {list(cfg['credentials']['usernames'].keys())}")
+            
+            cfg['credentials']['usernames'][email] = {
+                "email": email, "name": name, "company": company, "password": password_hash
+            }
+            
+            print(f"追加後ユーザー数: {len(cfg['credentials']['usernames'])}")
+            print(f"追加後ユーザー: {list(cfg['credentials']['usernames'].keys())}")
+            
+            ok = save_credentials_to_yaml(cfg)
+            if not ok:
+                return False
         
-        # ユーザーを追加
-        config['credentials']['usernames'][email] = {
-            "email": email,
-            "name": name,
-            "company": company,
-            "password": password_hash
-        }
-        
-        # 認証情報を保存
-        save_result = save_credentials_to_yaml(config)
-        
-        if save_result:
-            print(f"ユーザー追加成功（YAML）: {email}")
-            return True
-        else:
-            print(f"ユーザー追加失敗（YAML）: {email}")
-            return False
+        # 保存後に読み直して UI 側のキャッシュも更新
+        st.session_state['credentials_config'] = load_credentials_from_yaml()
+        print(f"ユーザー追加成功（YAML）: {email}")
+        return True
     except Exception as e:
         print(f"YAMLユーザー追加エラー: {e}")
         return False
+
+def ensure_basic_users(config) -> bool:
+    """基本ユーザーが存在することを確認し、必要に応じて追加"""
+    changed = False
+    users = config['credentials']['usernames']
+    for email, data in BASIC_USERS.items():
+        if email not in users:
+            print(f"基本ユーザーを追加: {email}")
+            users[email] = data
+            changed = True
+    return changed
 
 def check_user_exists_in_yaml(email):
     """YAMLファイルでユーザーの存在を確認する"""
@@ -717,28 +714,43 @@ st.image("会社ロゴ.png", width=220)
 st.title("受注集計アプリ（アグリライブ）")
 
 # 認証情報を初期化（関数定義後に移動）
-# YAMLファイルから認証情報を読み込み（基本ユーザーを含む）
-print("=== 認証情報読み込み開始 ===")
+# 起動直後（authenticator 作成前）に一度だけ実行
+print("=== 認証情報初期化開始 ===")
 
-# YAMLファイルから認証情報を読み込み
-credentials_config = load_credentials_from_yaml()
-print("=== 認証情報読み込み完了 ===")
+try:
+    # YAMLファイルから認証情報を読み込み
+    cfg = load_credentials_from_yaml()
+    
+    # 基本ユーザーが存在することを確認
+    if ensure_basic_users(cfg):
+        print("基本ユーザーを追加しました")
+        save_credentials_to_yaml(cfg)
+    
+    credentials_config = cfg
+    print("=== 認証情報初期化完了 ===")
+    
+    # デバッグ情報
+    total_users = len(credentials_config['credentials']['usernames'])
+    print(f"認証情報: 総ユーザー数={total_users}")
+    
+    # 詳細デバッグ情報
+    print("=== 認証情報詳細 ===")
+    print(f"全ユーザー: {list(credentials_config['credentials']['usernames'].keys())}")
+    
+    # 各ユーザーの詳細情報
+    for email, user_data in credentials_config['credentials']['usernames'].items():
+        print(f"ユーザー詳細 - {email}:")
+        print(f"  名前: {user_data.get('name', 'N/A')}")
+        print(f"  会社: {user_data.get('company', 'N/A')}")
+        print(f"  パスワード長: {len(user_data.get('password', ''))}")
+        print(f"  パスワード先頭: {user_data.get('password', '')[:20]}...")
 
-# デバッグ情報
-total_users = len(credentials_config['credentials']['usernames'])
-print(f"認証情報: 総ユーザー数={total_users}")
-
-# 詳細デバッグ情報
-print("=== 認証情報詳細 ===")
-print(f"全ユーザー: {list(credentials_config['credentials']['usernames'].keys())}")
-
-# 各ユーザーの詳細情報
-for email, user_data in credentials_config['credentials']['usernames'].items():
-    print(f"ユーザー詳細 - {email}:")
-    print(f"  名前: {user_data.get('name', 'N/A')}")
-    print(f"  会社: {user_data.get('company', 'N/A')}")
-    print(f"  パスワード長: {len(user_data.get('password', ''))}")
-    print(f"  パスワード先頭: {user_data.get('password', '')[:20]}...")
+except Exception as e:
+    print(f"認証情報初期化エラー: {e}")
+    # エラーの場合は基本設定を使用
+    credentials_config = _seed_config()
+    # 基本ユーザーを追加
+    ensure_basic_users(credentials_config)
 
 authenticator = stauth.Authenticate(
     credentials=credentials_config['credentials'],
