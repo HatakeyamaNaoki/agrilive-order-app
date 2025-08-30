@@ -1,9 +1,13 @@
 # parser_mitsubishi.py
 import pandas as pd
 from datetime import datetime
-import streamlit as st  # デバッグ出力用
+import logging
+from typing import Union, BinaryIO, TextIO
 
-def parse_mitsubishi(file_path: str, file_name: str) -> list[dict]:
+# ロガーの設定
+logger = logging.getLogger(__name__)
+
+def parse_mitsubishi(file_path: Union[str, BinaryIO, TextIO], file_name: str) -> list[dict]:
     df = pd.read_excel(file_path, sheet_name=0, header=None)
 
     # 基本情報の抽出
@@ -13,8 +17,9 @@ def parse_mitsubishi(file_path: str, file_name: str) -> list[dict]:
         delivery_date_raw = df.iloc[5, 9]
         customer_name = f"{df.iloc[0, 52]} {df.iloc[5, 19]}"
     except Exception as e:
-        st.error(f"[基本情報の抽出エラー] {file_name}: {e}")
-        return []
+        error_msg = f"[基本情報の抽出エラー] {file_name}: {e}"
+        logger.error(error_msg)
+        raise Exception(error_msg)
 
     # 発注日（(発注日 MM/DD) ～）から MM/DD 抽出し YYYY/MM/DD に変換
     try:
@@ -22,14 +27,16 @@ def parse_mitsubishi(file_path: str, file_name: str) -> list[dict]:
         order_date = datetime.strptime(f"{datetime.now().year}/{mmdd}", "%Y/%m/%d").strftime("%Y/%m/%d")
     except Exception:
         order_date = datetime.today().strftime("%Y/%m/%d")
-        st.warning(f"[発注日変換失敗] {file_name}: '{order_date_text}' → {order_date}")
+        warning_msg = f"[発注日変換失敗] {file_name}: '{order_date_text}' → {order_date}"
+        logger.warning(warning_msg)
 
     # 納品日（25/07/22 → 2025/07/22）形式変換
     try:
         delivery_date = datetime.strptime(str(delivery_date_raw), "%y/%m/%d").strftime("%Y/%m/%d")
     except Exception:
         delivery_date = ""
-        st.warning(f"[納品日変換失敗] {file_name}: '{delivery_date_raw}'")
+        warning_msg = f"[納品日変換失敗] {file_name}: '{delivery_date_raw}'"
+        logger.warning(warning_msg)
 
     result = []
 

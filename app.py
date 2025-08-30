@@ -1225,7 +1225,19 @@ if st.session_state.get("authentication_status"):
                             df_excel = pd.read_excel(io.BytesIO(content), sheet_name=0, header=None)
                             if df_excel.shape[0] > 5 and str(df_excel.iloc[4, 1]).strip() == "伝票番号":
                                 file_like = io.BytesIO(content)
-                                records += parse_mitsubishi(file_like, filename)
+                                try:
+                                    mitsubishi_records = parse_mitsubishi(file_like, filename)
+                                    records += mitsubishi_records
+                                    st.success(f"{filename} の解析が完了しました")
+                                except Exception as parse_error:
+                                    st.error(f"{filename} の解析に失敗しました: {parse_error}")
+                                    # ログから詳細情報を取得
+                                    import logging
+                                    logger = logging.getLogger('parser_mitsubishi')
+                                    if logger.handlers:
+                                        for handler in logger.handlers:
+                                            if hasattr(handler, 'baseFilename'):
+                                                st.info(f"詳細ログ: {handler.baseFilename}")
                             else:
                                 st.warning(f"{filename} は未対応のExcelフォーマットです")
                         except Exception as e:
