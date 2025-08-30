@@ -443,17 +443,8 @@ def validate_password(password):
     """
     パスワードの強度を検証する
     """
-    if len(password) < 8:
-        return False, "パスワードは8文字以上である必要があります"
-    
-    if not any(c.isupper() for c in password):
-        return False, "パスワードには大文字が含まれる必要があります"
-    
-    if not any(c.islower() for c in password):
-        return False, "パスワードには小文字が含まれる必要があります"
-    
-    if not any(c.isdigit() for c in password):
-        return False, "パスワードには数字が含まれる必要があります"
+    if len(password) < 6:
+        return False, "パスワードは6文字以上である必要があります"
     
     return True, "パスワードは有効です"
 
@@ -520,49 +511,8 @@ def load_credentials():
     with open("credentials.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
-# 基本認証情報を読み込み
+# 基本認証情報を読み込み（関数定義後に移動）
 base_credentials = load_credentials()
-
-# 動的ユーザー情報は後で読み込む（関数定義後に移動）
-dynamic_users = {"users": {}}
-credentials_config = merge_credentials(base_credentials, dynamic_users)
-
-# デバッグ情報
-total_users = len(credentials_config['credentials']['usernames'])
-dynamic_count = len(dynamic_users.get('users', {}))
-print(f"認証情報統合: 総ユーザー数={total_users}, 動的ユーザー数={dynamic_count}")
-
-# 詳細デバッグ情報
-print("=== 認証情報詳細 ===")
-print(f"基本認証ユーザー: {list(base_credentials['credentials']['usernames'].keys())}")
-print(f"動的ユーザー: {list(dynamic_users.get('users', {}).keys())}")
-print(f"統合後ユーザー: {list(credentials_config['credentials']['usernames'].keys())}")
-
-# 基本認証情報の形式を確認
-print("=== 基本認証情報の形式確認 ===")
-for email, user_data in base_credentials['credentials']['usernames'].items():
-    print(f"基本ユーザー - {email}:")
-    print(f"  データ型: {type(user_data)}")
-    print(f"  データ内容: {user_data}")
-
-# 動的ユーザーの詳細情報
-for email, password in dynamic_users.get('users', {}).items():
-    print(f"動的ユーザー詳細 - {email}:")
-    user_info = dynamic_users.get('user_info', {}).get(email, {})
-    print(f"  名前: {user_info.get('name', 'N/A')}")
-    print(f"  会社: {user_info.get('company', 'N/A')}")
-    print(f"  パスワード長: {len(password)}")
-    print(f"  パスワード先頭: {password[:20]}...")
-
-
-
-authenticator = stauth.Authenticate(
-    credentials=credentials_config['credentials'],
-    cookie_name=credentials_config['cookie']['name'],
-    key=credentials_config['cookie']['key'],
-    expiry_days=credentials_config['cookie']['expiry_days'],
-    preauthorized=credentials_config['preauthorized']
-)
 st.set_page_config(page_title="受注集計アプリ（アグリライブ）", layout="wide")
 
 # 自動更新機能
@@ -1531,6 +1481,41 @@ dynamic_users = load_users_from_db()
 credentials_config = merge_credentials(base_credentials, dynamic_users)
 print("=== 動的ユーザー読み込み完了 ===")
 
+# デバッグ情報
+total_users = len(credentials_config['credentials']['usernames'])
+dynamic_count = len(dynamic_users.get('users', {}))
+print(f"認証情報統合: 総ユーザー数={total_users}, 動的ユーザー数={dynamic_count}")
+
+# 詳細デバッグ情報
+print("=== 認証情報詳細 ===")
+print(f"基本認証ユーザー: {list(base_credentials['credentials']['usernames'].keys())}")
+print(f"動的ユーザー: {list(dynamic_users.get('users', {}).keys())}")
+print(f"統合後ユーザー: {list(credentials_config['credentials']['usernames'].keys())}")
+
+# 基本認証情報の形式を確認
+print("=== 基本認証情報の形式確認 ===")
+for email, user_data in base_credentials['credentials']['usernames'].items():
+    print(f"基本ユーザー - {email}:")
+    print(f"  データ型: {type(user_data)}")
+    print(f"  データ内容: {user_data}")
+
+# 動的ユーザーの詳細情報
+for email, user_data in dynamic_users.get('users', {}).items():
+    print(f"動的ユーザー詳細 - {email}:")
+    print(f"  名前: {user_data.get('name', 'N/A')}")
+    print(f"  会社: {user_data.get('company', 'N/A')}")
+    print(f"  パスワード長: {len(user_data.get('password', ''))}")
+    print(f"  パスワード先頭: {user_data.get('password', '')[:20]}...")
+
+# 認証情報を初期化
+authenticator = stauth.Authenticate(
+    credentials=credentials_config['credentials'],
+    cookie_name=credentials_config['cookie']['name'],
+    key=credentials_config['cookie']['key'],
+    expiry_days=credentials_config['cookie']['expiry_days'],
+    preauthorized=credentials_config['preauthorized']
+)
+
 # --- サイドバー（関数定義後に配置） ---
 if not st.session_state.get("authentication_status"):
     st.sidebar.markdown("---")
@@ -1605,6 +1590,33 @@ if not st.session_state.get("authentication_status"):
             st.session_state.debug_info = None
             st.session_state.registration_result = None
             st.rerun()
+
+    # 認証情報デバッグ表示
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔐 認証情報デバッグ")
+    
+    # 基本認証情報
+    st.sidebar.info(f"**基本ユーザー数**: {len(base_credentials['credentials']['usernames'])}")
+    st.sidebar.info(f"**基本ユーザー**: {list(base_credentials['credentials']['usernames'].keys())}")
+    
+    # SQLiteユーザー情報
+    try:
+        sqlite_users = load_users_from_db()
+        st.sidebar.info(f"**SQLiteユーザー数**: {len(sqlite_users.get('users', {}))}")
+        st.sidebar.info(f"**SQLiteユーザー**: {list(sqlite_users.get('users', {}).keys())}")
+        
+        # 統合後の認証情報
+        merged_creds = merge_credentials(base_credentials, sqlite_users)
+        st.sidebar.info(f"**統合後ユーザー数**: {len(merged_creds['credentials']['usernames'])}")
+        st.sidebar.info(f"**統合後ユーザー**: {list(merged_creds['credentials']['usernames'].keys())}")
+        
+        # データベース内容表示ボタン
+        if st.sidebar.button("データベース内容を表示", key="show_db"):
+            show_database_contents()
+            st.rerun()
+            
+    except Exception as e:
+        st.sidebar.error(f"**SQLite読み込みエラー**: {str(e)}")
 
     # 登録結果表示エリア
     if hasattr(st.session_state, 'registration_result') and st.session_state.registration_result:
