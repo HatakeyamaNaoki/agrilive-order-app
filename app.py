@@ -21,7 +21,7 @@ import requests
 # LINE注文データ管理用のディレクトリ
 LINE_ORDERS_DIR = "line_orders"
 if not os.path.exists(LINE_ORDERS_DIR):
-    os.makedirs(LINE_ORDERS_DIR)
+    os.makedirs(LINE_ORDERS_DIR, exist_ok=True)
 
 def get_file_lock(file_path, timeout=10):
     """
@@ -720,7 +720,6 @@ for email, password in dynamic_users.get('users', {}).items():
 
 # 動的ユーザーファイルの存在確認
 print("=== 動的ユーザーファイル確認 ===")
-import os
 secret_paths = [
     'dynamic_users.json',
     './dynamic_users.json',
