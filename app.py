@@ -523,6 +523,7 @@ def load_dynamic_users():
         try:
             # Secret Filesから読み込みを試行（Read-only file system対策）
             secret_paths = [
+                '/etc/secrets/dynamic_users.json',  # Render Secrets Files
                 'dynamic_users.json',
                 './dynamic_users.json',
                 '/tmp/dynamic_users.json'  # 一時ディレクトリを使用
@@ -578,6 +579,7 @@ def save_dynamic_users(dynamic_users):
         try:
             # Secret Filesに保存を試行（Read-only file system対策）
             secret_paths = [
+                '/etc/secrets/dynamic_users.json',  # Render Secrets Files
                 'dynamic_users.json',
                 './dynamic_users.json',
                 '/tmp/dynamic_users.json'  # 一時ディレクトリを使用
@@ -636,10 +638,11 @@ def merge_credentials(base_credentials, dynamic_users):
     for email, password in dynamic_users.get("users", {}).items():
         user_info = dynamic_users.get('user_info', {}).get(email, {})
         print(f"動的ユーザー追加: {email} - {user_info.get('name', 'N/A')}")
-        # streamlit-authenticatorが期待する形式（辞書形式）
+        # streamlit-authenticatorが期待する形式（基本認証ユーザーと同じ辞書形式）
         merged_credentials["credentials"]["usernames"][email] = {
             "email": email,
             "name": user_info.get("name", ""),
+            "company": user_info.get("company", ""),
             "password": password
         }
     
