@@ -660,18 +660,29 @@ def load_credentials():
     with open("credentials.json", "r", encoding="utf-8") as f:
         return json.load(f)
 
-# 基本認証情報と動的ユーザー情報を統合
-base_credentials = load_credentials()
-dynamic_users = load_dynamic_users()
-credentials_config = merge_credentials(base_credentials, dynamic_users)
+def get_authenticator():
+    """
+    認証情報を動的に読み込んでAuthenticatorを生成
+    """
+    base_credentials = load_credentials()
+    dynamic_users = load_dynamic_users()
+    credentials_config = merge_credentials(base_credentials, dynamic_users)
+    
+    # デバッグ情報
+    total_users = len(credentials_config['credentials']['usernames'])
+    dynamic_count = len(dynamic_users.get('users', {}))
+    print(f"認証情報統合: 総ユーザー数={total_users}, 動的ユーザー数={dynamic_count}")
+    
+    return stauth.Authenticate(
+        credentials=credentials_config['credentials'],
+        cookie_name=credentials_config['cookie']['name'],
+        key=credentials_config['cookie']['key'],
+        expiry_days=credentials_config['cookie']['expiry_days'],
+        preauthorized=credentials_config['preauthorized']
+    )
 
-authenticator = stauth.Authenticate(
-    credentials=credentials_config['credentials'],
-    cookie_name=credentials_config['cookie']['name'],
-    key=credentials_config['cookie']['key'],
-    expiry_days=credentials_config['cookie']['expiry_days'],
-    preauthorized=credentials_config['preauthorized']
-)
+# 初期認証情報の設定
+authenticator = get_authenticator()
 st.set_page_config(page_title="受注集計アプリ（アグリライブ）", layout="wide")
 
 # 自動更新機能
@@ -724,7 +735,9 @@ if not st.session_state.get("authentication_status"):
             
             if ok:
                 st.sidebar.success(msg)
-                # 成功時はrerunしない（デバッグ情報を保持）
+                # 認証情報を再読み込み
+                st.session_state.authenticator_updated = True
+                st.sidebar.info("認証情報を更新しました。ログインをお試しください。")
             else:
                 st.sidebar.error(msg)
         else:
@@ -767,6 +780,11 @@ if not st.session_state.get("authentication_status"):
             st.sidebar.info(f"時刻: {result['timestamp']}")
 
 # --- ログインフォームを描画（必ずここで表示！） ---
+# 認証情報の更新が必要な場合は再読み込み
+if st.session_state.get('authenticator_updated', False):
+    authenticator = get_authenticator()
+    st.session_state.authenticator_updated = False
+
 authenticator.login(
     location='main',
     fields={
