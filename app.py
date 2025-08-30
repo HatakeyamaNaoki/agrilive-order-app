@@ -457,50 +457,7 @@ def validate_password(password):
     
     return True, "パスワードは有効です"
 
-def add_user(email, name, company, password):
-    """
-    動的にユーザーを追加する（SQLiteデータベース使用）
-    """
-    import os
-    
-    print(f"add_user開始: email={email}, name={name}, company={company}")
-    
-    # メールアドレス形式チェック
-    is_valid_email, email_message = validate_email(email)
-    print(f"メールバリデーション: {is_valid_email}, {email_message}")
-    if not is_valid_email:
-        return False, email_message
-    
-    # パスワード強度チェック
-    is_valid_pw, pw_message = validate_password(password)
-    print(f"パスワードバリデーション: {is_valid_pw}, {pw_message}")
-    if not is_valid_pw:
-        return False, pw_message
-    
-    # データベースで重複チェック
-    if check_user_exists_in_db(email):
-        print(f"重複エラー: {email} は既に登録済み")
-        return False, "このメールアドレスは既に登録されています。"
-    
-    # 基本認証情報も確認（重複チェック）
-    base_credentials = load_credentials()
-    if email in base_credentials['credentials']['usernames']:
-        print(f"重複エラー: {email} は基本認証情報に既に存在")
-        return False, "このメールアドレスは既に登録されています。"
-    
-    # 正しいハッシュ化方法（bcrypt直接使用）
-    import bcrypt
-    hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    
-    # データベースにユーザーを追加
-    save_result = add_user_to_db(email, name, company, hashed_pw)
-    print(f"保存結果: {save_result}")
-    if save_result:
-        print(f"ユーザー追加成功: {email}")
-        return True, "アカウントを追加しました。"
-    else:
-        print(f"ユーザー追加失敗: {email}")
-        return False, "アカウントの保存に失敗しました。"
+
 
 
 
@@ -1617,6 +1574,51 @@ def check_user_exists_in_db(email):
     except Exception as e:
         print(f"データベース確認エラー: {e}")
         return False
+
+def add_user(email, name, company, password):
+    """
+    動的にユーザーを追加する（SQLiteデータベース使用）
+    """
+    import os
+    
+    print(f"add_user開始: email={email}, name={name}, company={company}")
+    
+    # メールアドレス形式チェック
+    is_valid_email, email_message = validate_email(email)
+    print(f"メールバリデーション: {is_valid_email}, {email_message}")
+    if not is_valid_email:
+        return False, email_message
+    
+    # パスワード強度チェック
+    is_valid_pw, pw_message = validate_password(password)
+    print(f"パスワードバリデーション: {is_valid_pw}, {pw_message}")
+    if not is_valid_pw:
+        return False, pw_message
+    
+    # データベースで重複チェック
+    if check_user_exists_in_db(email):
+        print(f"重複エラー: {email} は既に登録済み")
+        return False, "このメールアドレスは既に登録されています。"
+    
+    # 基本認証情報も確認（重複チェック）
+    base_credentials = load_credentials()
+    if email in base_credentials['credentials']['usernames']:
+        print(f"重複エラー: {email} は基本認証情報に既に存在")
+        return False, "このメールアドレスは既に登録されています。"
+    
+    # 正しいハッシュ化方法（bcrypt直接使用）
+    import bcrypt
+    hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    
+    # データベースにユーザーを追加
+    save_result = add_user_to_db(email, name, company, hashed_pw)
+    print(f"保存結果: {save_result}")
+    if save_result:
+        print(f"ユーザー追加成功: {email}")
+        return True, "アカウントを追加しました。"
+    else:
+        print(f"ユーザー追加失敗: {email}")
+        return False, "アカウントの保存に失敗しました。"
 
 # 関数定義後に動的ユーザーを読み込む
 print("=== 動的ユーザー読み込み開始 ===")
