@@ -636,8 +636,12 @@ def merge_credentials(base_credentials, dynamic_users):
     for email, password in dynamic_users.get("users", {}).items():
         user_info = dynamic_users.get('user_info', {}).get(email, {})
         print(f"動的ユーザー追加: {email} - {user_info.get('name', 'N/A')}")
-        # streamlit-authenticatorが期待する形式
-        merged_credentials["credentials"]["usernames"][email] = password
+        # streamlit-authenticatorが期待する形式（辞書形式）
+        merged_credentials["credentials"]["usernames"][email] = {
+            "email": email,
+            "name": user_info.get("name", ""),
+            "password": password
+        }
     
     print(f"統合後ユーザー数: {len(merged_credentials['credentials']['usernames'])}")
     print(f"統合後ユーザー一覧: {list(merged_credentials['credentials']['usernames'].keys())}")
