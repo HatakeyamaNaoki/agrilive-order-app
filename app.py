@@ -28,7 +28,8 @@ if not os.path.exists(LINE_ORDERS_DIR):
     os.makedirs(LINE_ORDERS_DIR, exist_ok=True)
 
 # --- 認証情報ファイル管理 ---
-CRED_PATH = Path("data/credentials.yml")
+APP_DIR = Path(__file__).resolve().parent
+CRED_PATH = APP_DIR / "data" / "credentials.yml"
 LOCK_PATH = CRED_PATH.with_suffix(".lock")
 
 def _atomic_write_text(path: Path, text: str):
@@ -416,35 +417,18 @@ def is_admin(username):
     return username in admin_emails
 
 def get_all_users():
-    """
-    すべてのユーザー情報を取得（基本ユーザー + 動的ユーザー）
-    """
+    """全ユーザー情報を取得（YAMLから読み込み）"""
     try:
-        base_credentials = load_credentials()
-        dynamic_users = load_dynamic_users()
-        
+        cfg = load_credentials_from_yaml()
         all_users = []
-        
-        # 基本ユーザー（Secret Files）
-        for email, user_info in base_credentials['credentials']['usernames'].items():
+        for email, u in cfg['credentials']['usernames'].items():
             all_users.append({
                 "email": email,
-                "name": user_info.get("name", ""),
-                "company": user_info.get("company", ""),
-                "type": "基本ユーザー（Secret Files）",
-                "created_date": "管理者設定"
+                "name": u.get("name", ""),
+                "company": u.get("company", ""),
+                "type": "YAMLユーザー",
+                "created_date": "登録済み"
             })
-        
-        # 動的ユーザー
-        for email, user_info in dynamic_users.get("users", {}).items():
-            all_users.append({
-                "email": email,
-                "name": user_info.get("name", ""),
-                "company": user_info.get("company", ""),
-                "type": "動的ユーザー",
-                "created_date": "新規登録"
-            })
-        
         return all_users
     except Exception as e:
         print(f"ユーザー情報取得エラー: {e}")
@@ -1630,26 +1614,7 @@ elif st.session_state.get("authentication_status") is None:
 
 
 
-# 関数定義後に認証情報を読み込む
-print("=== YAML認証情報読み込み開始 ===")
-credentials_config = load_credentials_from_yaml()
-print("=== YAML認証情報読み込み完了 ===")
 
-# デバッグ情報
-total_users = len(credentials_config['credentials']['usernames'])
-print(f"認証情報: 総ユーザー数={total_users}")
-
-# 詳細デバッグ情報
-print("=== 認証情報詳細 ===")
-print(f"全ユーザー: {list(credentials_config['credentials']['usernames'].keys())}")
-
-# 各ユーザーの詳細情報
-for email, user_data in credentials_config['credentials']['usernames'].items():
-    print(f"ユーザー詳細 - {email}:")
-    print(f"  名前: {user_data.get('name', 'N/A')}")
-    print(f"  会社: {user_data.get('company', 'N/A')}")
-    print(f"  パスワード長: {len(user_data.get('password', ''))}")
-    print(f"  パスワード先頭: {user_data.get('password', '')[:20]}...")
 
 
 
@@ -1732,11 +1697,7 @@ if not st.session_state.get("authentication_status"):
     st.sidebar.markdown("---")
     st.sidebar.subheader("🔐 認証情報デバッグ")
     
-    # 基本認証情報
-    st.sidebar.info(f"**基本ユーザー数**: {len(base_credentials['credentials']['usernames'])}")
-    st.sidebar.info(f"**基本ユーザー**: {list(base_credentials['credentials']['usernames'].keys())}")
-    
-    # YAML認証情報
+    # YAML認証情報（ソース・オブ・トゥルース）
     try:
         yaml_config = load_credentials_from_yaml()
         st.sidebar.info(f"**YAMLユーザー数**: {len(yaml_config['credentials']['usernames'])}")
