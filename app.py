@@ -452,26 +452,7 @@ def validate_password(password):
 
 
 
-def merge_credentials(base_credentials, dynamic_users):
-    """
-    基本認証情報と動的ユーザー情報を統合する
-    """
-    merged_credentials = base_credentials.copy()
-    
-    # デバッグ情報
-    print(f"基本認証情報ユーザー数: {len(base_credentials['credentials']['usernames'])}")
-    print(f"動的ユーザー数: {len(dynamic_users.get('users', {}))}")
-    
-    # 動的ユーザーを基本認証情報に追加
-    for email, user_data in dynamic_users.get("users", {}).items():
-        print(f"動的ユーザー追加: {email} - {user_data.get('name', 'N/A')}")
-        # streamlit-authenticatorが期待する形式（基本認証ユーザーと同じ辞書形式）
-        merged_credentials["credentials"]["usernames"][email] = user_data
-    
-    print(f"統合後ユーザー数: {len(merged_credentials['credentials']['usernames'])}")
-    print(f"統合後ユーザー一覧: {list(merged_credentials['credentials']['usernames'].keys())}")
-    
-    return merged_credentials
+
 
 # --- 認証 ---
 def load_credentials():
@@ -635,6 +616,23 @@ def check_user_exists_in_yaml(email):
     except Exception as e:
         print(f"YAMLユーザー確認エラー: {e}")
         return False
+
+def show_yaml_contents():
+    """YAMLファイルの内容を表示する"""
+    try:
+        config = load_credentials_from_yaml()
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("📄 YAMLファイル内容")
+        
+        # ユーザー情報を表示
+        for email, user_data in config['credentials']['usernames'].items():
+            st.sidebar.info(f"**{email}**")
+            st.sidebar.info(f"  名前: {user_data.get('name', 'N/A')}")
+            st.sidebar.info(f"  会社: {user_data.get('company', 'N/A')}")
+            st.sidebar.info(f"  パスワード: {user_data.get('password', 'N/A')[:20]}...")
+        
+    except Exception as e:
+        st.sidebar.error(f"YAMLファイル表示エラー: {str(e)}")
 
 def add_user(email, name, company, password):
     """
@@ -1619,24 +1617,23 @@ if not st.session_state.get("authentication_status"):
     st.sidebar.info(f"**基本ユーザー数**: {len(base_credentials['credentials']['usernames'])}")
     st.sidebar.info(f"**基本ユーザー**: {list(base_credentials['credentials']['usernames'].keys())}")
     
-    # SQLiteユーザー情報
+    # YAML認証情報
     try:
-        sqlite_users = load_users_from_db()
-        st.sidebar.info(f"**SQLiteユーザー数**: {len(sqlite_users.get('users', {}))}")
-        st.sidebar.info(f"**SQLiteユーザー**: {list(sqlite_users.get('users', {}).keys())}")
+        yaml_config = load_credentials_from_yaml()
+        st.sidebar.info(f"**YAMLユーザー数**: {len(yaml_config['credentials']['usernames'])}")
+        st.sidebar.info(f"**YAMLユーザー**: {list(yaml_config['credentials']['usernames'].keys())}")
         
-        # 統合後の認証情報
-        merged_creds = merge_credentials(base_credentials, sqlite_users)
-        st.sidebar.info(f"**統合後ユーザー数**: {len(merged_creds['credentials']['usernames'])}")
-        st.sidebar.info(f"**統合後ユーザー**: {list(merged_creds['credentials']['usernames'].keys())}")
+        # 現在の認証情報
+        st.sidebar.info(f"**現在のユーザー数**: {len(credentials_config['credentials']['usernames'])}")
+        st.sidebar.info(f"**現在のユーザー**: {list(credentials_config['credentials']['usernames'].keys())}")
         
-        # データベース内容表示ボタン
-        if st.sidebar.button("データベース内容を表示", key="show_db"):
-            show_database_contents()
+        # YAMLファイル内容表示ボタン
+        if st.sidebar.button("YAMLファイル内容を表示", key="show_yaml"):
+            show_yaml_contents()
             st.rerun()
             
     except Exception as e:
-        st.sidebar.error(f"**SQLite読み込みエラー**: {str(e)}")
+        st.sidebar.error(f"**YAML読み込みエラー**: {str(e)}")
 
     # 登録結果表示エリア
     if hasattr(st.session_state, 'registration_result') and st.session_state.registration_result:
