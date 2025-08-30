@@ -702,6 +702,13 @@ print(f"基本認証ユーザー: {list(base_credentials['credentials']['usernam
 print(f"動的ユーザー: {list(dynamic_users.get('users', {}).keys())}")
 print(f"統合後ユーザー: {list(credentials_config['credentials']['usernames'].keys())}")
 
+# 基本認証情報の形式を確認
+print("=== 基本認証情報の形式確認 ===")
+for email, user_data in base_credentials['credentials']['usernames'].items():
+    print(f"基本ユーザー - {email}:")
+    print(f"  データ型: {type(user_data)}")
+    print(f"  データ内容: {user_data}")
+
 # 動的ユーザーの詳細情報
 for email, password in dynamic_users.get('users', {}).items():
     print(f"動的ユーザー詳細 - {email}:")
