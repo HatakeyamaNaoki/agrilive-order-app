@@ -1058,6 +1058,16 @@ if st.session_state.get("authentication_status"):
     
     st.subheader("注文データファイルのアップロード")
     
+    # セッション状態の初期化（ファイルアップローダーの前に配置）
+    if 'data_edited' not in st.session_state:
+        st.session_state.data_edited = False
+    
+    if 'processed_files' not in st.session_state:
+        st.session_state.processed_files = set()
+    
+    if 'parsed_records' not in st.session_state:
+        st.session_state.parsed_records = []
+    
     # PDF画像表示設定
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -1090,18 +1100,6 @@ if st.session_state.get("authentication_status"):
 
     records = []
     debug_details = []
-    
-    # データ編集状態を管理
-    if 'data_edited' not in st.session_state:
-        st.session_state.data_edited = False
-    
-    # 解析済みファイルの状態管理
-    if 'processed_files' not in st.session_state:
-        st.session_state.processed_files = set()
-    
-    # 解析済みデータの状態管理
-    if 'parsed_records' not in st.session_state:
-        st.session_state.parsed_records = []
     
     # LINE注文データを取得（スコープ外でも使用するため、ここで定義）
     line_orders = get_line_orders_for_user(username)
