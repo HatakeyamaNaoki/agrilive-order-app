@@ -490,46 +490,9 @@ def validate_password(password):
 
 
 
-# --- 認証 ---
-def load_credentials():
-    """
-    認証情報を読み込む
-    本番環境: Render Secrets Filesから
-    ローカル環境: ファイルから
-    """
-    import os
-    
-    # 本番環境（Render）の場合
-    if os.getenv('RENDER'):
-        try:
-            # Secret Filesから読み込みを試行
-            secret_paths = [
-                '/etc/secrets/credentials.json',
-                'credentials.json',
-                './credentials.json'
-            ]
-            
-            for path in secret_paths:
-                if os.path.exists(path):
-                    with open(path, "r", encoding="utf-8") as f:
-                        return json.load(f)
-            
-            # Secret Filesで見つからない場合、通常のファイルから読み込み
-            with open("credentials.json", "r", encoding="utf-8") as f:
-                return json.load(f)
-                
-        except Exception as e:
-            print(f"認証情報読み込みエラー: {e}")
-            # フォールバック: 通常のファイルから読み込み
-            with open("credentials.json", "r", encoding="utf-8") as f:
-                return json.load(f)
-    
-    # ローカル開発環境の場合
-    with open("credentials.json", "r", encoding="utf-8") as f:
-        return json.load(f)
-
-# 基本認証情報を読み込み（関数定義後に移動）
-base_credentials = load_credentials()
+# --- 認証（YAML統合により削除） ---
+# load_credentials() 関数は削除 - YAML一本化
+# base_credentials も削除 - YAML一本化
 
 # --- YAMLファイルベースのユーザー管理 ---
 import yaml
@@ -756,6 +719,12 @@ def add_user(email, name, company, password):
     print(f"保存結果: {save_result}")
     if save_result:
         print(f"ユーザー追加成功: {email}")
+        # セッション状態を確実に更新
+        try:
+            st.session_state['credentials_config'] = load_credentials_from_yaml(use_lock=True)
+            print("セッション状態更新完了")
+        except Exception as e:
+            print(f"セッション更新エラー: {e}")
         return True, "アカウントを追加しました。"
     else:
         print(f"ユーザー追加失敗: {email}")
@@ -777,10 +746,15 @@ try:
     # YAMLファイルから認証情報を読み込み
     cfg = load_credentials_from_yaml()
     
-    # 基本ユーザーが存在することを確認
+    # 基本ユーザーが存在することを確認（初回作成時のみ保存）
     if ensure_basic_users(cfg):
         print("基本ユーザーを追加しました")
-        save_credentials_to_yaml(cfg)
+        # 初回作成時のみ保存（ファイルが存在しない場合）
+        if not CRED_PATH.exists():
+            print("初回作成のため、基本ユーザーを保存します")
+            save_credentials_to_yaml(cfg)
+        else:
+            print("ファイルが既に存在するため、基本ユーザーの追加は保存しません")
     
     credentials_config = cfg
     print("=== 認証情報初期化完了 ===")
