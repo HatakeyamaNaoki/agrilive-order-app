@@ -521,7 +521,14 @@ def init_database():
     import os
     
     # データベースファイルパス
-    db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
+    # Render環境では永続化可能なパスを使用
+    if os.getenv('RENDER'):
+        # Render環境では /opt/render/project/src を使用
+        db_path = '/opt/render/project/src/users.db'
+        # ディレクトリが存在しない場合は作成
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    else:
+        db_path = 'users.db'
     
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -550,7 +557,12 @@ def add_user_to_db(email, name, company, password_hash):
     # データベース初期化
     init_database()
     
-    db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
+    # Render環境では永続化可能なパスを使用
+    if os.getenv('RENDER'):
+        db_path = '/opt/render/project/src/users.db'
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    else:
+        db_path = 'users.db'
     
     try:
         conn = sqlite3.connect(db_path)
@@ -580,14 +592,36 @@ def load_users_from_db():
     # データベース初期化
     init_database()
     
-    db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
+    # Render環境では永続化可能なパスを使用
+    if os.getenv('RENDER'):
+        db_path = '/opt/render/project/src/users.db'
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    else:
+        db_path = 'users.db'
+    
+    print(f"データベースパス: {db_path}")
+    print(f"データベースファイル存在: {os.path.exists(db_path)}")
     
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        cursor.execute('SELECT email, name, company, password_hash FROM users')
-        users = cursor.fetchall()
+        # テーブル存在確認
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        table_exists = cursor.fetchone() is not None
+        print(f"usersテーブル存在: {table_exists}")
+        
+        if table_exists:
+            cursor.execute('SELECT email, name, company, password_hash FROM users')
+            users = cursor.fetchall()
+            print(f"データベースから読み込み: {len(users)} ユーザー")
+            
+            # 各ユーザーの詳細を表示
+            for i, (email, name, company, password_hash) in enumerate(users):
+                print(f"  ユーザー{i+1}: {email} ({name}, {company})")
+        else:
+            users = []
+            print("usersテーブルが存在しません")
         
         conn.close()
         
@@ -601,7 +635,6 @@ def load_users_from_db():
                 "password": password_hash
             }
         
-        print(f"データベースから読み込み: {len(users)} ユーザー")
         return dynamic_users
     except Exception as e:
         print(f"データベース読み込みエラー: {e}")
@@ -615,7 +648,12 @@ def check_user_exists_in_db(email):
     # データベース初期化
     init_database()
     
-    db_path = '/tmp/users.db' if os.getenv('RENDER') else 'users.db'
+    # Render環境では永続化可能なパスを使用
+    if os.getenv('RENDER'):
+        db_path = '/opt/render/project/src/users.db'
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    else:
+        db_path = 'users.db'
     
     try:
         conn = sqlite3.connect(db_path)
