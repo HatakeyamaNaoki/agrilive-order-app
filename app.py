@@ -718,6 +718,27 @@ for email, password in dynamic_users.get('users', {}).items():
     print(f"  パスワード長: {len(password)}")
     print(f"  パスワード先頭: {password[:20]}...")
 
+# 動的ユーザーファイルの存在確認
+print("=== 動的ユーザーファイル確認 ===")
+import os
+secret_paths = [
+    'dynamic_users.json',
+    './dynamic_users.json',
+    '/tmp/dynamic_users.json'
+]
+for path in secret_paths:
+    if os.path.exists(path):
+        print(f"ファイル存在: {path}")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+                print(f"  ファイルサイズ: {len(content)} bytes")
+                print(f"  ファイル内容: {content[:200]}...")
+        except Exception as e:
+            print(f"  読み込みエラー: {e}")
+    else:
+        print(f"ファイル不存在: {path}")
+
 authenticator = stauth.Authenticate(
     credentials=credentials_config['credentials'],
     cookie_name=credentials_config['cookie']['name'],
