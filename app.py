@@ -489,14 +489,15 @@ def add_user(email, name, company, password):
 
 def load_dynamic_users():
     """
-    動的に追加されたユーザー情報を読み込む
+    動的に追加されたユーザー情報を読み込む（ファイルロック付き）
     """
     try:
-        with open("dynamic_users.json", "r", encoding="utf-8") as f:
-            dynamic_users = json.load(f)
-            # デバッグ情報をログに出力
-            print(f"動的ユーザー読み込み成功: {len(dynamic_users.get('users', {}))} ユーザー")
-            return dynamic_users
+        with get_file_lock("dynamic_users.json"):
+            with open("dynamic_users.json", "r", encoding="utf-8") as f:
+                dynamic_users = json.load(f)
+                # デバッグ情報をログに出力
+                print(f"動的ユーザー読み込み成功: {len(dynamic_users.get('users', {}))} ユーザー")
+                return dynamic_users
     except FileNotFoundError:
         # ファイルが存在しない場合は空の構造を返す
         print("動的ユーザーファイルが見つかりません")
@@ -507,11 +508,12 @@ def load_dynamic_users():
 
 def save_dynamic_users(dynamic_users):
     """
-    動的に追加されたユーザー情報を保存する
+    動的に追加されたユーザー情報を保存する（ファイルロック付き）
     """
     try:
-        with open("dynamic_users.json", "w", encoding="utf-8") as f:
-            json.dump(dynamic_users, f, ensure_ascii=False, indent=4)
+        with get_file_lock("dynamic_users.json"):
+            with open("dynamic_users.json", "w", encoding="utf-8") as f:
+                json.dump(dynamic_users, f, ensure_ascii=False, indent=4)
         print(f"動的ユーザー保存成功: {len(dynamic_users.get('users', {}))} ユーザー")
         return True
     except Exception as e:
