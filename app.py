@@ -573,15 +573,14 @@ def _seed_config():
         'preauthorized': {'emails': ['melsby@gmail.com']}
     }
 
-def load_credentials_from_yaml():
+def load_credentials_from_yaml(use_lock=True):
     """YAMLファイルから認証情報を読み込む（読み込み専用、副作用なし）"""
     print(f"認証情報ファイルパス: {CRED_PATH}")
     
     # ディレクトリが存在しない場合は作成
     CRED_PATH.parent.mkdir(parents=True, exist_ok=True)
     
-    # 読み込み専用（保存の副作用を無くす）
-    with _with_creds_lock():
+    def _load_without_lock():
         if not CRED_PATH.exists():
             # 初回のみ seed を返す（ここでは保存しない）
             print("認証情報ファイルが存在しないため、基本設定を返します")
@@ -596,32 +595,47 @@ def load_credentials_from_yaml():
             error_msg = f"credentials.yml の解析に失敗しました。構文エラーの可能性: {e}"
             print(error_msg)
             raise RuntimeError(error_msg)
+        
+        # 最低限の構造を保障（ここでも保存しない）
+        cfg.setdefault('credentials', {}).setdefault('usernames', {})
+        cfg.setdefault('cookie', {'expiry_days': 30, 'key': 'some_signature_key', 'name': 'some_cookie_name'})
+        cfg.setdefault('preauthorized', {'emails': ['melsby@gmail.com']})
+        
+        users = cfg['credentials']['usernames']
+        print(f"YAMLファイルから読み込み: {len(users)} ユーザー")
+        
+        # 各ユーザーの詳細を表示
+        for email, user_data in users.items():
+            print(f"  ユーザー: {email} ({user_data.get('name', 'N/A')}, {user_data.get('company', 'N/A')})")
+        
+        return cfg
     
-    # 最低限の構造を保障（ここでも保存しない）
-    cfg.setdefault('credentials', {}).setdefault('usernames', {})
-    cfg.setdefault('cookie', {'expiry_days': 30, 'key': 'some_signature_key', 'name': 'some_cookie_name'})
-    cfg.setdefault('preauthorized', {'emails': ['melsby@gmail.com']})
-    
-    users = cfg['credentials']['usernames']
-    print(f"YAMLファイルから読み込み: {len(users)} ユーザー")
-    
-    # 各ユーザーの詳細を表示
-    for email, user_data in users.items():
-        print(f"  ユーザー: {email} ({user_data.get('name', 'N/A')}, {user_data.get('company', 'N/A')})")
-    
-    return cfg
+    if use_lock:
+        # 読み込み専用（保存の副作用を無くす）
+        with _with_creds_lock():
+            return _load_without_lock()
+    else:
+        # ロックなしで読み込み（既にロックを取得している場合）
+        return _load_without_lock()
 
-def save_credentials_to_yaml(config) -> bool:
+def save_credentials_to_yaml(config, use_lock=True) -> bool:
     """認証情報をYAMLファイルに原子的に保存"""
     try:
         print("認証情報保存開始")
-        with _with_creds_lock():
+        
+        def _save_without_lock():
             print("YAML形式に変換中...")
             text = yaml.safe_dump(config, allow_unicode=True, sort_keys=True)
             print(f"YAMLテキスト長: {len(text)} 文字")
             
             print("原子的書き込み実行中...")
             _atomic_write_text(CRED_PATH, text)
+        
+        if use_lock:
+            with _with_creds_lock():
+                _save_without_lock()
+        else:
+            _save_without_lock()
         
         print(f"認証情報保存成功: {CRED_PATH}")
         return True
@@ -652,7 +666,7 @@ def add_user_to_yaml(email, name, company, password_hash):
             print("ファイルロック取得完了")
             
             print("認証情報を読み込み中...")
-            cfg = load_credentials_from_yaml()  # ここで例外なら UI にそのまま出す
+            cfg = load_credentials_from_yaml(use_lock=False)  # ロックなしで読み込み
             print(f"読み込み時ユーザー数: {len(cfg['credentials']['usernames'])}")
             print(f"読み込み時ユーザー: {list(cfg['credentials']['usernames'].keys())}")
             
@@ -665,7 +679,7 @@ def add_user_to_yaml(email, name, company, password_hash):
             print(f"追加後ユーザー: {list(cfg['credentials']['usernames'].keys())}")
             
             print("認証情報を保存中...")
-            ok = save_credentials_to_yaml(cfg)
+            ok = save_credentials_to_yaml(cfg, use_lock=False)  # ロックなしで保存
             if not ok:
                 print("保存に失敗しました")
                 return False
