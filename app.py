@@ -520,11 +520,25 @@ def load_credentials_from_yaml():
         with open(file_path, "r", encoding="utf-8") as f:
             config = yaml.load(f, Loader=SafeLoader) or {}
         
-        # 基本構造がない場合は初期化
-        if 'credentials' not in config:
+        # 基本構造がない場合は基本認証情報で初期化
+        if 'credentials' not in config or not config['credentials']['usernames']:
+            print("YAMLファイルが空または基本構造がないため、基本認証情報で初期化")
             config = {
                 'credentials': {
-                    'usernames': {}
+                    'usernames': {
+                        'n.hatakeyama@agrilive.co.jp': {
+                            'email': 'n.hatakeyama@agrilive.co.jp',
+                            'name': '畠山 直己',
+                            'company': 'アグリライブ株式会社',
+                            'password': '$2b$12$uUoqP0QH.DBO2df028wtS.Vi91jYA4KLVulsatVAuFsY/m.9HWtku'
+                        },
+                        'hatake.hatake.hatake7@outlook.jp': {
+                            'email': 'hatake.hatake.hatake7@outlook.jp',
+                            'name': 'はたけやま',
+                            'company': 'アグリライブ株式会社',
+                            'password': '$2b$12$CBwB/tQCRJjyPEENHElWM.oKF69dzmSVREmoQ179JMnTvoayEAtPK'
+                        }
+                    }
                 },
                 'cookie': {
                     'expiry_days': 30,
@@ -532,9 +546,11 @@ def load_credentials_from_yaml():
                     'name': 'some_cookie_name'
                 },
                 'preauthorized': {
-                    'emails': []
+                    'emails': ['melsby@gmail.com']
                 }
             }
+            # 初期化した設定を保存
+            save_credentials_to_yaml(config)
         
         users = config['credentials']['usernames']
         print(f"YAMLファイルから読み込み: {len(users)} ユーザー")
@@ -546,10 +562,23 @@ def load_credentials_from_yaml():
         return config
     except Exception as e:
         print(f"YAMLファイル読み込みエラー: {e}")
-        # エラーの場合は基本構造を返す
+        # エラーの場合は基本認証情報を返す
         return {
             'credentials': {
-                'usernames': {}
+                'usernames': {
+                    'n.hatakeyama@agrilive.co.jp': {
+                        'email': 'n.hatakeyama@agrilive.co.jp',
+                        'name': '畠山 直己',
+                        'company': 'アグリライブ株式会社',
+                        'password': '$2b$12$uUoqP0QH.DBO2df028wtS.Vi91jYA4KLVulsatVAuFsY/m.9HWtku'
+                    },
+                    'hatake.hatake.hatake7@outlook.jp': {
+                        'email': 'hatake.hatake.hatake7@outlook.jp',
+                        'name': 'はたけやま',
+                        'company': 'アグリライブ株式会社',
+                        'password': '$2b$12$CBwB/tQCRJjyPEENHElWM.oKF69dzmSVREmoQ179JMnTvoayEAtPK'
+                    }
+                }
             },
             'cookie': {
                 'expiry_days': 30,
@@ -557,7 +586,7 @@ def load_credentials_from_yaml():
                 'name': 'some_cookie_name'
             },
             'preauthorized': {
-                'emails': []
+                'emails': ['melsby@gmail.com']
             }
         }
 
@@ -688,10 +717,12 @@ st.image("会社ロゴ.png", width=220)
 st.title("受注集計アプリ（アグリライブ）")
 
 # 認証情報を初期化（関数定義後に移動）
+# YAMLファイルから認証情報を読み込み（基本ユーザーを含む）
+print("=== 認証情報読み込み開始 ===")
+
 # YAMLファイルから認証情報を読み込み
-print("=== YAML認証情報読み込み開始 ===")
 credentials_config = load_credentials_from_yaml()
-print("=== YAML認証情報読み込み完了 ===")
+print("=== 認証情報読み込み完了 ===")
 
 # デバッグ情報
 total_users = len(credentials_config['credentials']['usernames'])
