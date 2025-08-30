@@ -23,6 +23,21 @@ LINE_ORDERS_DIR = "line_orders"
 if not os.path.exists(LINE_ORDERS_DIR):
     os.makedirs(LINE_ORDERS_DIR)
 
+def get_file_lock(file_path, timeout=10):
+    """
+    ファイルロックを取得する
+    """
+    try:
+        import filelock
+        lock_file = f"{file_path}.lock"
+        return filelock.FileLock(lock_file, timeout=timeout)
+    except ImportError:
+        # filelockが利用できない場合はダミーロック
+        class DummyLock:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+        return DummyLock()
+
 def save_line_order_data(line_account, sender_name, image_data, message_text=""):
     """
     LINE注文データを保存
@@ -51,17 +66,18 @@ def save_line_order_data(line_account, sender_name, image_data, message_text="")
         with open(image_path, "wb") as f:
             f.write(image_data)
         
-        # 注文データをJSONファイルに保存
+        # 注文データをJSONファイルに保存（ファイルロック付き）
         orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
-        orders = []
-        if os.path.exists(orders_file):
-            with open(orders_file, "r", encoding="utf-8") as f:
-                orders = json.load(f)
-        
-        orders.append(order_data)
-        
-        with open(orders_file, "w", encoding="utf-8") as f:
-            json.dump(orders, f, ensure_ascii=False, indent=4)
+        with get_file_lock(orders_file):
+            orders = []
+            if os.path.exists(orders_file):
+                with open(orders_file, "r", encoding="utf-8") as f:
+                    orders = json.load(f)
+            
+            orders.append(order_data)
+            
+            with open(orders_file, "w", encoding="utf-8") as f:
+                json.dump(orders, f, ensure_ascii=False, indent=4)
         
         return True, "LINE注文データを保存しました。"
     except Exception as e:
@@ -76,18 +92,19 @@ def save_parsed_line_order_data(timestamp, parsed_data):
         if not os.path.exists(orders_file):
             return False, "注文データファイルが見つかりません"
         
-        with open(orders_file, "r", encoding="utf-8") as f:
-            orders = json.load(f)
-        
-        # 指定されたタイムスタンプの注文を更新
-        for order in orders:
-            if order['timestamp'] == timestamp:
-                order['parsed_data'] = parsed_data
-                order['processed'] = True
-                break
-        
-        with open(orders_file, "w", encoding="utf-8") as f:
-            json.dump(orders, f, ensure_ascii=False, indent=4)
+        with get_file_lock(orders_file):
+            with open(orders_file, "r", encoding="utf-8") as f:
+                orders = json.load(f)
+            
+            # 指定されたタイムスタンプの注文を更新
+            for order in orders:
+                if order['timestamp'] == timestamp:
+                    order['parsed_data'] = parsed_data
+                    order['processed'] = True
+                    break
+            
+            with open(orders_file, "w", encoding="utf-8") as f:
+                json.dump(orders, f, ensure_ascii=False, indent=4)
         
         return True, "解析結果を保存しました"
     except Exception as e:
@@ -150,24 +167,25 @@ def delete_processed_line_orders():
         if not os.path.exists(orders_file):
             return True, "削除対象のデータがありません"
         
-        with open(orders_file, "r", encoding="utf-8") as f:
-            all_orders = json.load(f)
-        
-        # 処理済みの注文を削除
-        original_count = len(all_orders)
-        remaining_orders = [order for order in all_orders if not order.get("processed", False)]
-        deleted_count = original_count - len(remaining_orders)
-        
-        # 削除された注文の画像ファイルも削除
-        deleted_orders = [order for order in all_orders if order.get("processed", False)]
-        for order in deleted_orders:
-            image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
-            if os.path.exists(image_path):
-                os.remove(image_path)
-        
-        # 残りの注文データを保存
-        with open(orders_file, "w", encoding="utf-8") as f:
-            json.dump(remaining_orders, f, ensure_ascii=False, indent=4)
+        with get_file_lock(orders_file):
+            with open(orders_file, "r", encoding="utf-8") as f:
+                all_orders = json.load(f)
+            
+            # 処理済みの注文を削除
+            original_count = len(all_orders)
+            remaining_orders = [order for order in all_orders if not order.get("processed", False)]
+            deleted_count = original_count - len(remaining_orders)
+            
+            # 削除された注文の画像ファイルも削除
+            deleted_orders = [order for order in all_orders if order.get("processed", False)]
+            for order in deleted_orders:
+                image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+            
+            # 残りの注文データを保存
+            with open(orders_file, "w", encoding="utf-8") as f:
+                json.dump(remaining_orders, f, ensure_ascii=False, indent=4)
         
         return True, f"{deleted_count}件の処理済みデータを削除しました"
     except Exception as e:
@@ -182,27 +200,28 @@ def delete_line_order_by_timestamp(timestamp):
         if not os.path.exists(orders_file):
             return False, "データファイルが見つかりません"
         
-        with open(orders_file, "r", encoding="utf-8") as f:
-            all_orders = json.load(f)
-        
-        # 指定されたタイムスタンプの注文を削除
-        original_count = len(all_orders)
-        remaining_orders = [order for order in all_orders if order['timestamp'] != timestamp]
-        deleted_count = original_count - len(remaining_orders)
-        
-        if deleted_count == 0:
-            return False, "指定されたデータが見つかりません"
-        
-        # 削除された注文の画像ファイルも削除
-        deleted_orders = [order for order in all_orders if order['timestamp'] == timestamp]
-        for order in deleted_orders:
-            image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
-            if os.path.exists(image_path):
-                os.remove(image_path)
-        
-        # 残りの注文データを保存
-        with open(orders_file, "w", encoding="utf-8") as f:
-            json.dump(remaining_orders, f, ensure_ascii=False, indent=4)
+        with get_file_lock(orders_file):
+            with open(orders_file, "r", encoding="utf-8") as f:
+                all_orders = json.load(f)
+            
+            # 指定されたタイムスタンプの注文を削除
+            original_count = len(all_orders)
+            remaining_orders = [order for order in all_orders if order['timestamp'] != timestamp]
+            deleted_count = original_count - len(remaining_orders)
+            
+            if deleted_count == 0:
+                return False, "指定されたデータが見つかりません"
+            
+            # 削除された注文の画像ファイルも削除
+            deleted_orders = [order for order in all_orders if order['timestamp'] == timestamp]
+            for order in deleted_orders:
+                image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+            
+            # 残りの注文データを保存
+            with open(orders_file, "w", encoding="utf-8") as f:
+                json.dump(remaining_orders, f, ensure_ascii=False, indent=4)
         
         return True, f"データを削除しました"
     except Exception as e:
