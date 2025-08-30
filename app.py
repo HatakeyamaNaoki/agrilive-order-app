@@ -450,24 +450,31 @@ def validate_password(password):
 def add_user(email, name, company, password):
     import os
     
+    print(f"add_user開始: email={email}, name={name}, company={company}")
+    
     # メールアドレス形式チェック
     is_valid_email, email_message = validate_email(email)
+    print(f"メールバリデーション: {is_valid_email}, {email_message}")
     if not is_valid_email:
         return False, email_message
     
     # パスワード強度チェック
     is_valid_pw, pw_message = validate_password(password)
+    print(f"パスワードバリデーション: {is_valid_pw}, {pw_message}")
     if not is_valid_pw:
         return False, pw_message
     
     # 動的ユーザー情報を読み込み
     dynamic_users = load_dynamic_users()
+    print(f"動的ユーザー読み込み: {len(dynamic_users.get('users', {}))} ユーザー")
     
     # 基本認証情報も確認（重複チェック）
     base_credentials = load_credentials()
     all_users = merge_credentials(base_credentials, dynamic_users)
+    print(f"統合後ユーザー数: {len(all_users['credentials']['usernames'])}")
     
     if email in all_users['credentials']['usernames']:
+        print(f"重複エラー: {email} は既に登録済み")
         return False, "このメールアドレスは既に登録されています。"
     
     # 正しいハッシュ化方法（bcrypt直接使用）
@@ -480,11 +487,16 @@ def add_user(email, name, company, password):
         "company": company,
         "password": hashed_pw
     }
+    print(f"ユーザー追加: {email} を動的ユーザーに追加")
     
     # 動的ユーザーファイルに保存
-    if save_dynamic_users(dynamic_users):
+    save_result = save_dynamic_users(dynamic_users)
+    print(f"保存結果: {save_result}")
+    if save_result:
+        print(f"ユーザー追加成功: {email}")
         return True, "アカウントを追加しました。"
     else:
+        print(f"ユーザー追加失敗: {email}")
         return False, "アカウントの保存に失敗しました。"
 
 def load_dynamic_users():
@@ -685,10 +697,16 @@ if not st.session_state.get("authentication_status"):
     agree_terms = st.sidebar.checkbox("利用規約・プライバシーポリシーに同意します", key="agree_terms")
 
     if st.sidebar.button("追加"):
+        # デバッグ情報を表示
+        st.sidebar.info(f"デバッグ: メール={new_email}, 名前={new_name}, 会社={new_company}, パスワード長={len(new_password) if new_password else 0}")
+        st.sidebar.info(f"デバッグ: 利用規約同意={agree_terms}")
+        
         if not agree_terms:
             st.sidebar.warning("利用規約・プライバシーポリシーに同意が必要です。")
         elif new_email and new_name and new_company and new_password:
+            st.sidebar.info("デバッグ: ユーザー追加処理を開始")
             ok, msg = add_user(new_email, new_name, new_company, new_password)
+            st.sidebar.info(f"デバッグ: 結果={ok}, メッセージ={msg}")
             if ok:
                 st.sidebar.success(msg)
                 # 成功時にフォームをクリア
@@ -697,6 +715,7 @@ if not st.session_state.get("authentication_status"):
                 st.sidebar.error(msg)
         else:
             st.sidebar.warning("すべて入力してください。")
+            st.sidebar.info(f"デバッグ: 未入力項目 - メール:{bool(new_email)}, 名前:{bool(new_name)}, 会社:{bool(new_company)}, パスワード:{bool(new_password)}")
 
 # --- ログインフォームを描画（必ずここで表示！） ---
 authenticator.login(
