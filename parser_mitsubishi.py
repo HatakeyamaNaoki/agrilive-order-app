@@ -21,21 +21,65 @@ def parse_mitsubishi(file_path: Union[str, BinaryIO, TextIO], file_name: str) ->
         logger.error(error_msg)
         raise Exception(error_msg)
 
+    # 納品日（25/07/22 → 2025/07/22）形式変換（年推定の基準として使用）
+    delivery_date = ""
+    delivery_year = None
+    try:
+        delivery_date = datetime.strptime(str(delivery_date_raw), "%y/%m/%d").strftime("%Y/%m/%d")
+        delivery_year = datetime.strptime(str(delivery_date_raw), "%y/%m/%d").year
+        logger.info(f"[納品日変換成功] {file_name}: '{delivery_date_raw}' → {delivery_date}")
+    except Exception:
+        warning_msg = f"[納品日変換失敗] {file_name}: '{delivery_date_raw}'"
+        logger.warning(warning_msg)
+
     # 発注日（(発注日 MM/DD) ～）から MM/DD 抽出し YYYY/MM/DD に変換
+    # 納品日の年を基準に年跨ぎ誤判定を防止
     try:
         mmdd = order_date_text.split('発注日')[1].split(')')[0].strip()
-        order_date = datetime.strptime(f"{datetime.now().year}/{mmdd}", "%Y/%m/%d").strftime("%Y/%m/%d")
+        
+        # 年推定ロジック
+        current_year = datetime.now().year
+        current_month = datetime.now().month
+        
+        if delivery_year:
+            # 納品日の年を基準とする
+            estimated_year = delivery_year
+            logger.info(f"[年推定] {file_name}: 納品日の年({delivery_year})を基準として使用")
+        else:
+            # 納品日の年が取得できない場合は現在年を使用
+            estimated_year = current_year
+            logger.info(f"[年推定] {file_name}: 現在年({current_year})を基準として使用")
+        
+        # 発注日を構築
+        order_date_candidate = datetime.strptime(f"{estimated_year}/{mmdd}", "%Y/%m/%d")
+        
+        # 年跨ぎチェック：年末年始の誤判定を防止
+        if delivery_date and delivery_year:
+            delivery_date_obj = datetime.strptime(delivery_date, "%Y/%m/%d")
+            
+            # 発注日が納品日より後の場合の処理
+            if order_date_candidate > delivery_date_obj:
+                # 年末年始の特殊ケース（12月発注→1月納品）
+                if order_date_candidate.month == 12 and delivery_date_obj.month == 1:
+                    # 12月発注→1月納品は正常なケース
+                    logger.info(f"[年末年始ケース] {file_name}: 12月発注→1月納品は正常として処理")
+                else:
+                    # その他の場合は前年として扱う
+                    order_date_candidate = datetime.strptime(f"{estimated_year-1}/{mmdd}", "%Y/%m/%d")
+                    logger.info(f"[年跨ぎ調整] {file_name}: 発注日を前年に調整 {estimated_year} → {estimated_year-1}")
+            
+            # 発注日が納品日より大幅に前の場合（例：1月発注→12月納品）
+            elif (delivery_date_obj - order_date_candidate).days > 300:
+                # 1年を超える差がある場合は翌年として扱う
+                order_date_candidate = datetime.strptime(f"{estimated_year+1}/{mmdd}", "%Y/%m/%d")
+                logger.info(f"[年跨ぎ調整] {file_name}: 発注日を翌年に調整 {estimated_year} → {estimated_year+1}")
+        
+        order_date = order_date_candidate.strftime("%Y/%m/%d")
+        logger.info(f"[発注日変換成功] {file_name}: '{order_date_text}' → {order_date}")
+        
     except Exception:
         order_date = datetime.today().strftime("%Y/%m/%d")
         warning_msg = f"[発注日変換失敗] {file_name}: '{order_date_text}' → {order_date}"
-        logger.warning(warning_msg)
-
-    # 納品日（25/07/22 → 2025/07/22）形式変換
-    try:
-        delivery_date = datetime.strptime(str(delivery_date_raw), "%y/%m/%d").strftime("%Y/%m/%d")
-    except Exception:
-        delivery_date = ""
-        warning_msg = f"[納品日変換失敗] {file_name}: '{delivery_date_raw}'"
         logger.warning(warning_msg)
 
     result = []
