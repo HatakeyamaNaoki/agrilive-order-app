@@ -486,16 +486,20 @@ def add_user(email, name, company, password):
         print(f"重複エラー: {email} は既に登録済み")
         return False, "このメールアドレスは既に登録されています。"
     
+    # 追加情報を別途保存（名前、会社名など）
+    if 'user_info' not in dynamic_users:
+        dynamic_users['user_info'] = {}
+    dynamic_users['user_info'][email] = {
+        "name": name,
+        "company": company
+    }
+    
     # 正しいハッシュ化方法（bcrypt直接使用）
     import bcrypt
     hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
-    # 動的ユーザー情報に追加
-    dynamic_users["users"][email] = {
-        "name": name,
-        "company": company,
-        "password": hashed_pw
-    }
+    # 動的ユーザー情報に追加（streamlit-authenticator形式）
+    dynamic_users["users"][email] = hashed_pw
     print(f"ユーザー追加: {email} を動的ユーザーに追加")
     
     # 動的ユーザーファイルに保存
@@ -631,12 +635,8 @@ def merge_credentials(base_credentials, dynamic_users):
     # 動的ユーザーを基本認証情報に追加
     for email, user_info in dynamic_users.get("users", {}).items():
         print(f"動的ユーザー追加: {email} - {user_info.get('name', 'N/A')}")
-        merged_credentials["credentials"]["usernames"][email] = {
-            "email": email,
-            "name": user_info.get("name", ""),
-            "company": user_info.get("company", ""),
-            "password": user_info.get("password", "")
-        }
+        # streamlit-authenticatorが期待する形式
+        merged_credentials["credentials"]["usernames"][email] = user_info.get("password", "")
     
     print(f"統合後ユーザー数: {len(merged_credentials['credentials']['usernames'])}")
     print(f"統合後ユーザー一覧: {list(merged_credentials['credentials']['usernames'].keys())}")
@@ -698,12 +698,13 @@ print(f"動的ユーザー: {list(dynamic_users.get('users', {}).keys())}")
 print(f"統合後ユーザー: {list(credentials_config['credentials']['usernames'].keys())}")
 
 # 動的ユーザーの詳細情報
-for email, user_info in dynamic_users.get('users', {}).items():
+for email, password in dynamic_users.get('users', {}).items():
     print(f"動的ユーザー詳細 - {email}:")
-    print(f"  名前: {user_info.get('name')}")
-    print(f"  会社: {user_info.get('company')}")
-    print(f"  パスワード長: {len(user_info.get('password', ''))}")
-    print(f"  パスワード先頭: {user_info.get('password', '')[:20]}...")
+    user_info = dynamic_users.get('user_info', {}).get(email, {})
+    print(f"  名前: {user_info.get('name', 'N/A')}")
+    print(f"  会社: {user_info.get('company', 'N/A')}")
+    print(f"  パスワード長: {len(password)}")
+    print(f"  パスワード先頭: {password[:20]}...")
 
 authenticator = stauth.Authenticate(
     credentials=credentials_config['credentials'],
