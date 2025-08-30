@@ -29,7 +29,9 @@ if not os.path.exists(LINE_ORDERS_DIR):
 
 # --- 認証情報ファイル管理 ---
 APP_DIR = Path(__file__).resolve().parent
-CRED_PATH = APP_DIR / "data" / "credentials.yml"
+# 環境変数で上書きできるように
+DEFAULT_DATA_DIR = os.getenv("APP_DATA_DIR", str(APP_DIR / "data"))
+CRED_PATH = Path(DEFAULT_DATA_DIR) / "credentials.yml"
 LOCK_PATH = CRED_PATH.with_suffix(".lock")
 
 def _atomic_write_text(path: Path, text: str):
@@ -745,12 +747,6 @@ def add_user(email, name, company, password):
         print(f"重複エラー: {email} は既に登録済み")
         return False, "このメールアドレスは既に登録されています。"
     
-    # 基本認証情報も確認（重複チェック）
-    base_credentials = load_credentials()
-    if email in base_credentials['credentials']['usernames']:
-        print(f"重複エラー: {email} は基本認証情報に既に存在")
-        return False, "このメールアドレスは既に登録されています。"
-    
     # 正しいハッシュ化方法（bcrypt直接使用）
     import bcrypt
     hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -806,11 +802,8 @@ try:
         print(f"  パスワード先頭: {user_data.get('password', '')[:20]}...")
 
 except Exception as e:
-    print(f"認証情報初期化エラー: {e}")
-    # エラーの場合は基本設定を使用
-    credentials_config = _seed_config()
-    # 基本ユーザーを追加
-    ensure_basic_users(credentials_config)
+    st.error(f"認証情報の読み込みに失敗しました: {e}")
+    st.stop()  # ここで中断。seedに差し替えない
 
 authenticator = stauth.Authenticate(
     credentials=credentials_config['credentials'],
@@ -905,16 +898,23 @@ if st.session_state.get("authentication_status"):
             
             # 統計情報
             all_users = get_all_users()
-            base_users = [u for u in all_users if u["type"] == "基本ユーザー（Secret Files）"]
-            dynamic_users = [u for u in all_users if u["type"] == "動的ユーザー"]
+            # 旧ロジックは削除
+            # base_users = [u for u in all_users if u["type"] == "基本ユーザー（Secret Files）"]
+            # dynamic_users = [u for u in all_users if u["type"] == "動的ユーザー"]
+            
+            yaml_users = all_users  # これが全ユーザー
             
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("総ユーザー数", len(all_users))
+                st.metric("総ユーザー数", len(yaml_users))
             with col2:
-                st.metric("基本ユーザー数", len(base_users))
+                # 基本ユーザー（@agrilive.co.jp）の数をカウント
+                basic_count = len([u for u in yaml_users if "@agrilive.co.jp" in u["email"]])
+                st.metric("基本ユーザー数", basic_count)
             with col3:
-                st.metric("動的ユーザー数", len(dynamic_users))
+                # その他のユーザー数をカウント
+                other_count = len([u for u in yaml_users if "@agrilive.co.jp" not in u["email"]])
+                st.metric("その他ユーザー数", other_count)
             
             # ユーザー一覧
             st.subheader("👥 ユーザー一覧")
@@ -973,52 +973,33 @@ if st.session_state.get("authentication_status"):
                 st.info(f"**現在のユーザー**: {username}")
             
             with col2:
-                st.info(f"**基本認証ファイル**: credentials.json")
-                st.info(f"**動的ユーザーファイル**: dynamic_users.json")
+                st.info(f"**認証情報ファイル**: {CRED_PATH}")
+                st.info(f"**ファイル形式**: YAML")
             
             st.stop()  # 管理者ダッシュボード表示時は通常の機能をスキップ
     except Exception as e:
         st.error(f"管理者ダッシュボードエラー: {e}")
         # エラーが発生した場合は通常の機能を続行
 
-    # デバッグ用: 動的ユーザー情報の確認（開発時のみ表示）
+    # デバッグ用: ファイルパス情報の確認（開発時のみ表示）
     if not is_production():
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("デバッグ情報")
-        try:
-            dynamic_users = load_dynamic_users()
-            st.sidebar.info(f"動的ユーザー数: {len(dynamic_users.get('users', {}))}")
-            if dynamic_users.get('users'):
-                st.sidebar.json(dynamic_users)
-        except Exception as e:
-            st.sidebar.error(f"動的ユーザー読み込みエラー: {e}")
-        
-        # ファイルパス情報を表示
         st.sidebar.markdown("---")
         st.sidebar.subheader("ファイルパス情報")
         import os
         current_dir = os.getcwd()
         st.sidebar.info(f"現在のディレクトリ: {current_dir}")
         
-        # 主要ファイルの存在確認
-        files_to_check = [
-            "dynamic_users.json",
-            "credentials.json", 
-            "app.py"
-        ]
+        # YAMLファイルの存在確認
+        yaml_exists = CRED_PATH.exists()
+        yaml_status = "✅ 存在" if yaml_exists else "❌ 不存在"
+        st.sidebar.info(f"YAMLファイル: {yaml_status}")
         
-        for file in files_to_check:
-            file_path = os.path.join(current_dir, file)
-            exists = os.path.exists(file_path)
-            status = "✅ 存在" if exists else "❌ 不存在"
-            st.sidebar.info(f"{file}: {status}")
-            
-            if exists:
-                try:
-                    size = os.path.getsize(file_path)
-                    st.sidebar.info(f"  - サイズ: {size} bytes")
-                except:
-                    pass
+        if yaml_exists:
+            try:
+                size = CRED_PATH.stat().st_size
+                st.sidebar.info(f"  - サイズ: {size} bytes")
+            except:
+                pass
 
     # OpenAI APIキー設定（開発環境のみ）
     if not is_production():
@@ -1696,6 +1677,12 @@ if not st.session_state.get("authentication_status"):
     # 認証情報デバッグ表示
     st.sidebar.markdown("---")
     st.sidebar.subheader("🔐 認証情報デバッグ")
+    
+    # YAMLファイル情報
+    st.sidebar.info(f"**YAMLパス**: {CRED_PATH}")
+    if CRED_PATH.exists():
+        import time
+        st.sidebar.info(f"**最終更新**: {time.ctime(CRED_PATH.stat().st_mtime)}")
     
     # YAML認証情報（ソース・オブ・トゥルース）
     try:
