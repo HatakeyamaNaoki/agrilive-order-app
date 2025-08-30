@@ -522,6 +522,15 @@ if st.button("🔄 データを更新", key="refresh_data"):
 st.image("会社ロゴ.png", width=220)
 st.title("受注集計アプリ（アグリライブ）")
 
+# 認証情報を初期化
+authenticator = stauth.Authenticate(
+    credentials=credentials_config['credentials'],
+    cookie_name=credentials_config['cookie']['name'],
+    key=credentials_config['cookie']['key'],
+    expiry_days=credentials_config['cookie']['expiry_days'],
+    preauthorized=credentials_config['preauthorized']
+)
+
 # --- ログインフォームを描画（必ずここで表示！） ---
 authenticator.login(
     location='main',
@@ -1506,15 +1515,6 @@ for email, user_data in dynamic_users.get('users', {}).items():
     print(f"  会社: {user_data.get('company', 'N/A')}")
     print(f"  パスワード長: {len(user_data.get('password', ''))}")
     print(f"  パスワード先頭: {user_data.get('password', '')[:20]}...")
-
-# 認証情報を初期化
-authenticator = stauth.Authenticate(
-    credentials=credentials_config['credentials'],
-    cookie_name=credentials_config['cookie']['name'],
-    key=credentials_config['cookie']['key'],
-    expiry_days=credentials_config['cookie']['expiry_days'],
-    preauthorized=credentials_config['preauthorized']
-)
 
 # --- サイドバー（関数定義後に配置） ---
 if not st.session_state.get("authentication_status"):
