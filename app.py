@@ -489,35 +489,108 @@ def add_user(email, name, company, password):
 
 def load_dynamic_users():
     """
-    動的に追加されたユーザー情報を読み込む（ファイルロック付き）
+    動的に追加されたユーザー情報を読み込む（Render Secrets Files対応）
     """
+    import os
+    
+    # 本番環境（Render）の場合
+    if os.getenv('RENDER'):
+        try:
+            # Secret Filesから読み込みを試行
+            secret_paths = [
+                '/etc/secrets/dynamic_users.json',
+                'dynamic_users.json',
+                './dynamic_users.json'
+            ]
+            
+            for path in secret_paths:
+                if os.path.exists(path):
+                    with get_file_lock(path):
+                        with open(path, "r", encoding="utf-8") as f:
+                            dynamic_users = json.load(f)
+                            print(f"動的ユーザー読み込み成功（Secret Files）: {len(dynamic_users.get('users', {}))} ユーザー")
+                            return dynamic_users
+            
+            # Secret Filesで見つからない場合、通常のファイルから読み込み
+            if os.path.exists("dynamic_users.json"):
+                with get_file_lock("dynamic_users.json"):
+                    with open("dynamic_users.json", "r", encoding="utf-8") as f:
+                        dynamic_users = json.load(f)
+                        print(f"動的ユーザー読み込み成功（通常ファイル）: {len(dynamic_users.get('users', {}))} ユーザー")
+                        return dynamic_users
+            
+            # ファイルが存在しない場合は空の構造を返す
+            print("動的ユーザーファイルが見つかりません（新規作成）")
+            return {"users": {}}
+                
+        except Exception as e:
+            print(f"動的ユーザー読み込みエラー（Render）: {e}")
+            return {"users": {}}
+    
+    # ローカル開発環境の場合
     try:
         with get_file_lock("dynamic_users.json"):
             with open("dynamic_users.json", "r", encoding="utf-8") as f:
                 dynamic_users = json.load(f)
-                # デバッグ情報をログに出力
-                print(f"動的ユーザー読み込み成功: {len(dynamic_users.get('users', {}))} ユーザー")
+                print(f"動的ユーザー読み込み成功（ローカル）: {len(dynamic_users.get('users', {}))} ユーザー")
                 return dynamic_users
     except FileNotFoundError:
-        # ファイルが存在しない場合は空の構造を返す
-        print("動的ユーザーファイルが見つかりません")
+        print("動的ユーザーファイルが見つかりません（ローカル）")
         return {"users": {}}
     except Exception as e:
-        print(f"動的ユーザー読み込みエラー: {e}")
+        print(f"動的ユーザー読み込みエラー（ローカル）: {e}")
         return {"users": {}}
 
 def save_dynamic_users(dynamic_users):
     """
-    動的に追加されたユーザー情報を保存する（ファイルロック付き）
+    動的に追加されたユーザー情報を保存する（Render Secrets Files対応）
     """
+    import os
+    
+    # 本番環境（Render）の場合
+    if os.getenv('RENDER'):
+        try:
+            # Secret Filesに保存を試行
+            secret_paths = [
+                '/etc/secrets/dynamic_users.json',
+                'dynamic_users.json',
+                './dynamic_users.json'
+            ]
+            
+            for path in secret_paths:
+                try:
+                    with get_file_lock(path):
+                        with open(path, "w", encoding="utf-8") as f:
+                            json.dump(dynamic_users, f, ensure_ascii=False, indent=4)
+                    print(f"動的ユーザー保存成功（Secret Files）: {len(dynamic_users.get('users', {}))} ユーザー")
+                    if os.getenv("DEBUG") == "1":
+                        print(f"保存先ファイル: {os.path.abspath(path)}")
+                        print(f"ファイルサイズ: {os.path.getsize(path)} bytes")
+                    return True
+                except Exception as path_error:
+                    print(f"パス {path} への保存失敗: {path_error}")
+                    continue
+            
+            # すべてのパスで失敗した場合
+            print("すべてのSecret Filesパスで保存に失敗")
+            return False
+                
+        except Exception as e:
+            print(f"動的ユーザー保存エラー（Render）: {e}")
+            return False
+    
+    # ローカル開発環境の場合
     try:
         with get_file_lock("dynamic_users.json"):
             with open("dynamic_users.json", "w", encoding="utf-8") as f:
                 json.dump(dynamic_users, f, ensure_ascii=False, indent=4)
-        print(f"動的ユーザー保存成功: {len(dynamic_users.get('users', {}))} ユーザー")
+        print(f"動的ユーザー保存成功（ローカル）: {len(dynamic_users.get('users', {}))} ユーザー")
+        if os.getenv("DEBUG") == "1":
+            print(f"保存先ファイル: {os.path.abspath('dynamic_users.json')}")
+            print(f"ファイルサイズ: {os.path.getsize('dynamic_users.json')} bytes")
         return True
     except Exception as e:
-        print(f"動的ユーザー保存エラー: {e}")
+        print(f"動的ユーザー保存エラー（ローカル）: {e}")
         return False
 
 def merge_credentials(base_credentials, dynamic_users):
