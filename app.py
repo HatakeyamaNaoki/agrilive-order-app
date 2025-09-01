@@ -814,8 +814,8 @@ if st.session_state.get("authentication_status"):
     if st.sidebar.button("🔄 データを更新", key="refresh_data_sidebar"):
         st.rerun()
     
-    # メイン画面のヘッダー部分
-    col1, col2 = st.columns([3, 1])
+    # メイン画面のヘッダー部分（空白を詰める）
+    col1, col2 = st.columns([4, 1])
     
     with col1:
         st.title("受注集計アプリ")
@@ -823,7 +823,7 @@ if st.session_state.get("authentication_status"):
     
     with col2:
         # ロゴを右上に配置
-        st.image("会社ロゴ.png", width=150)
+        st.image("会社ロゴ.png", width=120)
     
     # LINE注文データの表示
     st.sidebar.markdown("---")
@@ -1027,7 +1027,7 @@ if st.session_state.get("authentication_status"):
         with col3:
             st.metric("処理済み", len(processed_orders))
     
-    # 手動アップロード機能
+    # 手動アップロード機能（レイアウトを統一）
     with st.expander("📤 LINE画像を手動アップロード"):
         uploaded_line_image = st.file_uploader(
             "LINEの注文画像をアップロード",
@@ -1036,12 +1036,13 @@ if st.session_state.get("authentication_status"):
         )
         
         if uploaded_line_image:
-            col1, col2 = st.columns([2, 1])
+            col1, col2 = st.columns([3, 1])
             
             with col1:
                 st.image(uploaded_line_image, caption="アップロードされたLINE画像", width=400)
             
             with col2:
+                st.write("")  # 上部の空白を調整
                 sender_name = st.text_input("送信者名", value="", key="sender_name")
                 message_text = st.text_area("メッセージ内容（オプション）", key="message_text")
                 
@@ -1241,8 +1242,8 @@ if st.session_state.get("authentication_status"):
     if 'parsed_records' not in st.session_state:
         st.session_state.parsed_records = []
     
-    # PDF画像表示設定
-    col1, col2 = st.columns([3, 1])
+    # PDF画像表示設定（カラムレイアウトを調整して縦位置を合わせる）
+    col1, col2 = st.columns([4, 1])
     with col1:
         uploaded_files = st.file_uploader(
             label="Infomart / IPORTER / PDF 等の注文ファイルをここにドラッグ＆ドロップまたは選択してください",
@@ -1261,6 +1262,7 @@ if st.session_state.get("authentication_status"):
             if new_files_count > 0:
                 st.session_state.data_edited = False
     with col2:
+        st.write("")  # 上部の空白を調整
         show_pdf_images = st.checkbox("PDF画像を表示", value=True, help="PDFファイルの画像を表示するかどうかを設定します")
         
         # 解析済みファイルリセットボタン
@@ -1296,10 +1298,10 @@ if st.session_state.get("authentication_status"):
             with col3:
                 st.metric("最新更新", max(order['order_date'] for order in processed_line_orders) if processed_line_orders else "なし")
             
-            # 解析済みデータの詳細表示
+            # 解析済みデータの詳細表示（レイアウトを統一）
             with st.expander("📋 解析済みLINE注文詳細", expanded=False):
                 for i, order in enumerate(processed_line_orders):
-                    col1, col2 = st.columns([2, 1])
+                    col1, col2 = st.columns([3, 1])
                     
                     with col1:
                         st.write(f"**{i+1}. {order['sender_name']} - {order['order_date']}**")
@@ -1308,6 +1310,7 @@ if st.session_state.get("authentication_status"):
                             st.write(f"メッセージ: {order['message_text']}")
                     
                     with col2:
+                        st.write("")  # 上部の空白を調整
                         # 画像表示
                         image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
                         if os.path.exists(image_path):
