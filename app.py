@@ -725,14 +725,8 @@ def add_user(email, name, company, password):
     else:
         print(f"ユーザー追加失敗: {email}")
         return False, "アカウントの保存に失敗しました。"
-st.set_page_config(page_title="受注集計アプリ（アグリライブ）", layout="wide")
 
-# 自動更新機能
-if st.button("🔄 データを更新", key="refresh_data"):
-    st.rerun()
-
-st.image("会社ロゴ.png", width=220)
-st.title("受注集計アプリ（アグリライブ）")
+st.set_page_config(page_title="受注集計アプリ", layout="wide")
 
 # 認証情報を初期化（関数定義後に移動）
 # 起動直後（authenticator 作成前）に一度だけ実行
@@ -784,10 +778,10 @@ authenticator = stauth.Authenticate(
 authenticator.login(
     location='main',
     fields={
-        "Form name": "Login",
-        "Username": "Email",
-        "Password": "Password",
-        "Login": "Login"
+        "Form name": "ログイン",
+        "Username": "メールアドレス",
+        "Password": "パスワード",
+        "Login": "ログイン"
     }
 )
 
@@ -814,7 +808,22 @@ if st.session_state.get("authentication_status"):
     
     # ログアウトボタンを一番上に配置
     authenticator.logout('ログアウト', 'sidebar')
-    st.success(f"{name} さん、ようこそ！")
+    
+    # データ更新ボタンをサイドバーに移動
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🔄 データを更新", key="refresh_data_sidebar"):
+        st.rerun()
+    
+    # メイン画面のヘッダー部分
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.title("受注集計アプリ")
+        st.success(f"{name} さん、ようこそ！")
+    
+    with col2:
+        # ロゴを右上に配置
+        st.image("会社ロゴ.png", width=150)
     
     # LINE注文データの表示
     st.sidebar.markdown("---")
