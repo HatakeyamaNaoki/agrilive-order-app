@@ -429,12 +429,19 @@ def get_all_users():
         cfg = load_credentials_from_yaml()
         all_users = []
         for email, u in cfg['credentials']['usernames'].items():
+            # 作成日を適切な形式に設定
+            # 基本ユーザーの場合は固定日付、新規追加ユーザーの場合は保存された作成日を使用
+            if email in BASIC_USERS:
+                created_date = "2024/01/01"  # 基本ユーザーの作成日
+            else:
+                # 新規追加ユーザーの場合は保存された作成日を使用
+                created_date = u.get("created_date", "2024/01/01")  # デフォルト値
+            
             all_users.append({
                 "email": email,
                 "name": u.get("name", ""),
                 "company": u.get("company", ""),
-                "type": "YAMLユーザー",
-                "created_date": "登録済み"
+                "created_date": created_date
             })
         return all_users
     except Exception as e:
@@ -625,8 +632,12 @@ def add_user_to_yaml(email, name, company, password_hash):
             print(f"読み込み時ユーザー: {list(cfg['credentials']['usernames'].keys())}")
             
             print("ユーザーを追加中...")
+            # 作成日を記録
+            from datetime import datetime
+            created_date = datetime.now().strftime("%Y/%m/%d")
+            
             cfg['credentials']['usernames'][email] = {
-                "email": email, "name": name, "company": company, "password": password_hash
+                "email": email, "name": name, "company": company, "password": password_hash, "created_date": created_date
             }
             
             print(f"追加後ユーザー数: {len(cfg['credentials']['usernames'])}")
@@ -896,10 +907,10 @@ if st.session_state.get("authentication_status"):
             st.subheader("👥 ユーザー一覧")
             
             if all_users:
-                # DataFrameに変換
+                # DataFrameに変換（ユーザータイプ列を削除）
                 df_users = pd.DataFrame(all_users)
-                df_users = df_users[["email", "name", "company", "type", "created_date"]]
-                df_users.columns = ["メールアドレス", "お名前", "会社名", "ユーザータイプ", "作成日"]
+                df_users = df_users[["email", "name", "company", "created_date"]]
+                df_users.columns = ["メールアドレス", "お名前", "会社名", "作成日"]
                 
                 st.dataframe(
                     df_users,
