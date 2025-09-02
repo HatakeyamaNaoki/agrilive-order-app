@@ -1724,4 +1724,4 @@ if not st.session_state.get("authentication_status"):
         html = load_docx_html("プライバシーポリシー.docx")
         st.markdown("### プライバシーポリシー")
         st.markdown(html, unsafe_allow_html=True)
-    # 何も選択しなければ何も出さない
+    # 何も選択しなければ何も出さな
