@@ -12,9 +12,12 @@ from parser_pdf import parse_pdf_handwritten
 from prompt_line import get_line_order_prompt
 from docx import Document
 import pdfplumber
+from PIL import Image
 import base64
 import os
 from datetime import datetime, timezone, timedelta
+import requests
+import sqlite3
 from pathlib import Path
 import tempfile
 import filelock
@@ -34,6 +37,7 @@ else:
     DEFAULT_DATA_DIR = str(APP_DIR / "data")
 
 CRED_PATH = Path(DEFAULT_DATA_DIR) / "credentials.yml"
+LOCK_PATH = CRED_PATH.with_suffix(".lock")
 
 def _atomic_write_text(path: Path, text: str):
     """原子的にテキストファイルを書き込む"""
@@ -671,6 +675,23 @@ def check_user_exists_in_yaml(email):
         print(f"YAMLユーザー確認エラー: {e}")
         return False
 
+def show_yaml_contents():
+    """YAMLファイルの内容を表示する"""
+    try:
+        config = load_credentials_from_yaml()
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("📄 YAMLファイル内容")
+        
+        # ユーザー情報を表示
+        for email, user_data in config['credentials']['usernames'].items():
+            st.sidebar.info(f"**{email}**")
+            st.sidebar.info(f"  名前: {user_data.get('name', 'N/A')}")
+            st.sidebar.info(f"  会社: {user_data.get('company', 'N/A')}")
+            st.sidebar.info(f"  パスワード: {user_data.get('password', 'N/A')[:20]}...")
+        
+    except Exception as e:
+        st.sidebar.error(f"YAMLファイル表示エラー: {str(e)}")
+
 def add_user(email, name, company, password):
     """
     動的にユーザーを追加する（YAMLファイル使用）
@@ -864,6 +885,9 @@ if st.session_state.get("authentication_status"):
             
             # 統計情報
             all_users = get_all_users()
+            # 旧ロジックは削除
+            # base_users = [u for u in all_users if u["type"] == "基本ユーザー（Secret Files）"]
+            # dynamic_users = [u for u in all_users if u["type"] == "動的ユーザー"]
             
             yaml_users = all_users  # これが全ユーザー
             
@@ -1261,6 +1285,7 @@ if st.session_state.get("authentication_status"):
             st.rerun()
 
     records = []
+    debug_details = []
     
     # LINE注文データを取得（スコープ外でも使用するため、ここで定義）
     line_orders = get_line_orders_for_user(username)
@@ -1666,9 +1691,10 @@ if not st.session_state.get("authentication_status"):
         st.sidebar.info(f"**現在のユーザー数**: {len(credentials_config['credentials']['usernames'])}")
         st.sidebar.info(f"**現在のユーザー**: {list(credentials_config['credentials']['usernames'].keys())}")
         
-        # YAMLファイル内容表示ボタン（関数が削除されたため無効化）
+        # YAMLファイル内容表示ボタン
         if st.sidebar.button("YAMLファイル内容を表示", key="show_yaml"):
-            st.sidebar.info("この機能は現在利用できません")
+            show_yaml_contents()
+            st.rerun()
             
     except Exception as e:
         st.sidebar.error(f"**YAML読み込みエラー**: {str(e)}")
@@ -1684,6 +1710,7 @@ if not st.session_state.get("authentication_status"):
         else:
             st.sidebar.error(f"❌ {result['message']}")
             st.sidebar.info(f"時刻: {result['timestamp']}")
+
 # --- ログイン画面の下に規約を表示（ここで順序調整） ---
 if not st.session_state.get("authentication_status"):
     st.markdown("---")
