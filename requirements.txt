@@ -1,23 +1,23 @@
-streamlit==1.32.0
-streamlit-authenticator==0.4.2
+streamlit>=1.28.0
+streamlit-authenticator>=0.4.0
 extra-streamlit-components
-pandas==2.0.0
-bcrypt==4.0.1
-python-dotenv==1.0.0
+pandas>=1.5.0
+bcrypt>=4.0.0
+python-dotenv>=1.0.0
 xlsxwriter
 openpyxl
 python-docx
-openai==1.0.0
-PyPDF2==3.0.0
-pdfplumber==0.10.0
-Pillow==10.0.0
+openai>=1.0.0
+PyPDF2>=3.0.0
+pdfplumber>=0.10.0
+Pillow>=10.2.0
 # Google Cloud Vision AI
-google-cloud-vision==3.4.0
-google-auth==2.17.0
+google-cloud-vision>=3.4.0
+google-auth>=2.17.0
 # File locking for concurrent access
-filelock==3.13.0
+filelock>=3.13.0
 # YAML file support
-PyYAML==6.0
+PyYAML>=6.0.0
 # Additional dependencies for Render
 httpx
 requests
