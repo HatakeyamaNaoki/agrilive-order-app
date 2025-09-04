@@ -17,17 +17,29 @@ def is_production():
 
 def get_openai_api_key():
     """OpenAI APIキーを取得"""
+    # デバッグ情報を追加
+    print(f"DEBUG: is_production() = {is_production()}")
+    print(f"DEBUG: RENDER = {os.getenv('RENDER')}")
+    print(f"DEBUG: ENV = {os.getenv('ENV')}")
+    print(f"DEBUG: OPENAI_API_KEY = {os.getenv('OPENAI_API_KEY')}")
+    
     # 本番環境では環境変数から取得
     if is_production():
-        return os.getenv('OPENAI_API_KEY')
+        api_key = os.getenv('OPENAI_API_KEY')
+        print(f"DEBUG: Production mode, API key = {api_key}")
+        return api_key
     
     # 開発環境では.envファイルから取得
     try:
         from dotenv import load_dotenv
         load_dotenv()
-        return os.getenv('OPENAI_API_KEY')
+        api_key = os.getenv('OPENAI_API_KEY')
+        print(f"DEBUG: Development mode, API key = {api_key}")
+        return api_key
     except ImportError:
-        return os.getenv('OPENAI_API_KEY')
+        api_key = os.getenv('OPENAI_API_KEY')
+        print(f"DEBUG: Import error, API key = {api_key}")
+        return api_key
 
 def get_line_channel_access_token():
     """LINE Channel Access Tokenを取得"""
