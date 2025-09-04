@@ -988,6 +988,14 @@ if st.session_state.get("authentication_status"):
             except:
                 pass
 
+    # 環境情報表示（デバッグ用）
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔍 環境情報（デバッグ）")
+    st.sidebar.info(f"RENDER: {os.getenv('RENDER')}")
+    st.sidebar.info(f"ENV: {os.getenv('ENV')}")
+    st.sidebar.info(f"is_production(): {is_production()}")
+    st.sidebar.info(f"OpenAI API Key: {'設定済み' if get_openai_api_key() else '未設定'}")
+
     # OpenAI APIキー設定（開発環境のみ）
     if not is_production():
         st.sidebar.markdown("---")
