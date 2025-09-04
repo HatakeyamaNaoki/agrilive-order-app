@@ -11,12 +11,7 @@ logger = logging.getLogger(__name__)
 if not os.getenv('RENDER'):
     load_dotenv()
 
-# 起動時のデバッグ情報表示
-print("=== CONFIG.PY 起動時デバッグ情報 ===")
-print(f"RENDER: {os.getenv('RENDER')}")
-print(f"ENV: {os.getenv('ENV')}")
-print(f"OPENAI_API_KEY: {os.getenv('OPENAI_API_KEY')}")
-print("=====================================")
+
 
 def is_production():
     """本番環境かどうかを判定"""
@@ -24,29 +19,17 @@ def is_production():
 
 def get_openai_api_key():
     """OpenAI APIキーを取得"""
-    # デバッグ情報を追加
-    print(f"DEBUG: is_production() = {is_production()}")
-    print(f"DEBUG: RENDER = {os.getenv('RENDER')}")
-    print(f"DEBUG: ENV = {os.getenv('ENV')}")
-    print(f"DEBUG: OPENAI_API_KEY = {os.getenv('OPENAI_API_KEY')}")
-    
     # 本番環境では環境変数から取得
     if is_production():
-        api_key = os.getenv('OPENAI_API_KEY')
-        print(f"DEBUG: Production mode, API key = {api_key}")
-        return api_key
+        return os.getenv('OPENAI_API_KEY')
     
     # 開発環境では.envファイルから取得
     try:
         from dotenv import load_dotenv
         load_dotenv()
-        api_key = os.getenv('OPENAI_API_KEY')
-        print(f"DEBUG: Development mode, API key = {api_key}")
-        return api_key
+        return os.getenv('OPENAI_API_KEY')
     except ImportError:
-        api_key = os.getenv('OPENAI_API_KEY')
-        print(f"DEBUG: Import error, API key = {api_key}")
-        return api_key
+        return os.getenv('OPENAI_API_KEY')
 
 def get_line_channel_access_token():
     """LINE Channel Access Tokenを取得"""
