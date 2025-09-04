@@ -11,6 +11,13 @@ logger = logging.getLogger(__name__)
 if not os.getenv('RENDER'):
     load_dotenv()
 
+# 起動時のデバッグ情報表示
+print("=== CONFIG.PY 起動時デバッグ情報 ===")
+print(f"RENDER: {os.getenv('RENDER')}")
+print(f"ENV: {os.getenv('ENV')}")
+print(f"OPENAI_API_KEY: {os.getenv('OPENAI_API_KEY')}")
+print("=====================================")
+
 def is_production():
     """本番環境かどうかを判定"""
     return os.getenv('ENV') == 'production' or os.getenv('RENDER') == 'true'
