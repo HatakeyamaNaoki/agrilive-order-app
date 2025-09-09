@@ -1723,57 +1723,105 @@ if st.session_state.get("authentication_status"):
             
             with col1:
                 # 削除対象の行を選択（IDベース）
-                selected_ids = st.multiselect(
-                    "削除する行を選択",
-                    options=df_all['id'].tolist(),
-                    format_func=lambda x: f"ID {x}: {df_all[df_all['id'] == x]['商品名'].iloc[0]} - {df_all[df_all['id'] == x]['取引先名'].iloc[0]}",
-                    help="削除したい行のIDを選択してください"
-                )
+                if not df_all.empty:
+                    # 安全なformat_funcを作成
+                    def format_row_option(row_id):
+                        try:
+                            row_data = df_all[df_all['id'] == row_id]
+                            if not row_data.empty:
+                                product_name = str(row_data['商品名'].iloc[0]) if pd.notna(row_data['商品名'].iloc[0]) else "商品名なし"
+                                partner_name = str(row_data['取引先名'].iloc[0]) if pd.notna(row_data['取引先名'].iloc[0]) else "取引先名なし"
+                                return f"ID {row_id}: {product_name} - {partner_name}"
+                            else:
+                                return f"ID {row_id}: データなし"
+                        except Exception:
+                            return f"ID {row_id}: エラー"
+                    
+                    selected_ids = st.multiselect(
+                        "削除する行を選択",
+                        options=df_all['id'].tolist(),
+                        format_func=format_row_option,
+                        help="削除したい行のIDを選択してください"
+                    )
+                else:
+                    selected_ids = []
+                    st.info("削除可能なデータがありません")
             
             with col2:
                 st.write("")  # 上部の空白を調整
                 if st.button("選択した行を削除", type="secondary", disabled=len(selected_ids) == 0):
                     if selected_ids:
-                        try:
-                            # データベースから削除
-                            deleted_count = 0
-                            with _conn() as c:
-                                for row_id in selected_ids:
-                                    c.execute("DELETE FROM order_lines WHERE id = ?", (row_id,))
-                                    deleted_count += 1
-                            
-                            st.success(f"{deleted_count}行を削除しました")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"削除エラー: {e}")
+                        # 削除確認
+                        st.warning(f"⚠️ {len(selected_ids)}行を削除します。この操作は取り消せません。")
+                        if st.button("確認して削除", type="primary", key="confirm_delete_rows"):
+                            try:
+                                # データベースから削除
+                                deleted_count = 0
+                                with _conn() as c:
+                                    for row_id in selected_ids:
+                                        result = c.execute("DELETE FROM order_lines WHERE id = ?", (row_id,))
+                                        if result.rowcount > 0:
+                                            deleted_count += 1
+                                
+                                if deleted_count > 0:
+                                    st.success(f"✅ {deleted_count}行を削除しました")
+                                    # 画面を更新
+                                    st.rerun()
+                                else:
+                                    st.warning("削除された行がありません")
+                            except Exception as e:
+                                st.error(f"削除エラー: {e}")
+                                st.error(f"エラー詳細: {str(e)}")
             
             # バッチ単位での削除
             st.subheader("🗑️ バッチ単位削除")
-            unique_batches = df_all['バッチID'].unique()
-            if len(unique_batches) > 0:
-                selected_batch = st.selectbox(
-                    "削除するバッチを選択",
-                    options=unique_batches,
-                    format_func=lambda x: f"{x} ({len(df_all[df_all['バッチID'] == x])}行)"
-                )
-                
-                col1, col2 = st.columns([2, 1])
-                with col1:
-                    st.warning(f"選択されたバッチ: {selected_batch}")
-                    st.info(f"削除対象: {len(df_all[df_all['バッチID'] == selected_batch])}行")
-                
-                with col2:
-                    if st.button("バッチを削除", type="secondary"):
-                        try:
-                            # バッチ内の全行を削除
-                            with _conn() as c:
-                                c.execute("DELETE FROM order_lines WHERE batch_id = ?", (selected_batch,))
-                                c.execute("DELETE FROM batches WHERE batch_id = ?", (selected_batch,))
-                            
-                            st.success(f"バッチ '{selected_batch}' を削除しました")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"バッチ削除エラー: {e}")
+            if not df_all.empty:
+                unique_batches = df_all['バッチID'].unique()
+                if len(unique_batches) > 0:
+                    selected_batch = st.selectbox(
+                        "削除するバッチを選択",
+                        options=unique_batches,
+                        format_func=lambda x: f"{x} ({len(df_all[df_all['バッチID'] == x])}行)"
+                    )
+                    
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        st.warning(f"選択されたバッチ: {selected_batch}")
+                        st.info(f"削除対象: {len(df_all[df_all['バッチID'] == selected_batch])}行")
+                    
+                    with col2:
+                        if st.button("バッチを削除", type="secondary"):
+                            # 削除確認
+                            batch_row_count = len(df_all[df_all['バッチID'] == selected_batch])
+                            st.warning(f"⚠️ バッチ '{selected_batch}' の {batch_row_count}行を削除します。この操作は取り消せません。")
+                            if st.button("確認してバッチ削除", type="primary", key="confirm_delete_batch"):
+                                try:
+                                    # バッチ内の全行を削除
+                                    deleted_rows = 0
+                                    with _conn() as c:
+                                        # 削除対象の行数を確認
+                                        cur = c.execute("SELECT COUNT(*) FROM order_lines WHERE batch_id = ?", (selected_batch,))
+                                        row_count = cur.fetchone()[0]
+                                        
+                                        # 実際に削除
+                                        result1 = c.execute("DELETE FROM order_lines WHERE batch_id = ?", (selected_batch,))
+                                        result2 = c.execute("DELETE FROM batches WHERE batch_id = ?", (selected_batch,))
+                                        
+                                        deleted_rows = result1.rowcount
+                                    
+                                    if deleted_rows > 0:
+                                        st.success(f"✅ バッチ '{selected_batch}' を削除しました（{deleted_rows}行）")
+                                        # 画面を更新
+                                        st.rerun()
+                                    else:
+                                        st.warning("削除された行がありません")
+                                except Exception as e:
+                                    st.error(f"バッチ削除エラー: {e}")
+                                    st.error(f"エラー詳細: {str(e)}")
+                else:
+                    st.info("削除可能なバッチがありません")
+            else:
+                st.info("削除可能なデータがありません")
 
             # 全履歴Excelをダウンロード
             jst = pytz.timezone("Asia/Tokyo")
