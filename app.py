@@ -21,7 +21,7 @@ import sqlite3
 from pathlib import Path
 import tempfile
 import filelock
-from db import init_db, save_order_lines, list_batches, load_batch, get_batch_stats, DB_PATH
+from db import init_db, save_order_lines, list_batches, load_batch, get_batch_stats, DB_PATH, _conn
 
 # LINE注文データ管理用のディレクトリ
 LINE_ORDERS_DIR = "line_orders"
@@ -1031,6 +1031,9 @@ if st.session_state.get("authentication_status"):
         # 本番環境の場合 - APIキー情報は表示しない
         pass
 
+    # タブ構成で画面を整理
+    tab1, tab2, tab3 = st.tabs(["📤 アップロード/解析", "📋 編集（注文一覧）", "🕘 履歴（DB）"])
+    
     # LINE注文データの表示
     line_orders = get_line_orders_for_user(username)
     
@@ -1141,6 +1144,45 @@ if st.session_state.get("authentication_status"):
                                         if not success:
                                             st.error(f"解析結果の保存に失敗: {message}")
                                         
+                                        # データベースに保存
+                                        try:
+                                            # 標準形式に変換
+                                            records = []
+                                            delivery_date = parsed_data.get("delivery_date", order['order_date'])
+                                            items = parsed_data.get("items", [])
+                                            
+                                            for item in items:
+                                                record = {
+                                                    "order_id": item.get("order_id", ""),
+                                                    "order_date": order['order_date'],
+                                                    "delivery_date": delivery_date,
+                                                    "partner_name": parsed_data.get("partner_name", order['sender_name']),
+                                                    "product_code": item.get("product_code", ""),
+                                                    "product_name": item.get("product_name", ""),
+                                                    "quantity": item.get("quantity", ""),
+                                                    "unit": item.get("unit", ""),
+                                                    "unit_price": item.get("unit_price", ""),
+                                                    "amount": item.get("amount", ""),
+                                                    "remark": item.get("remark", ""),
+                                                    "data_source": f"LINE注文_{order['timestamp']}"
+                                                }
+                                                records.append(record)
+                                            
+                                            # 標準形式のDataFrameを作成
+                                            df_line = pd.DataFrame(records)
+                                            if not df_line.empty:
+                                                # 列名を日本語に変換
+                                                df_line.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
+                                                # バッチIDを生成
+                                                jst = pytz.timezone("Asia/Tokyo")
+                                                now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
+                                                batch_id = f"LINE_{order['timestamp']}_{now_str}"
+                                                
+                                                # データベースに保存
+                                                save_order_lines(df_line, batch_id, note=f"LINE注文一括解析_{order['sender_name']}")
+                                        except Exception as db_error:
+                                            st.error(f"データベース保存エラー ({order['sender_name']}): {db_error}")
+                                        
                                         processed_count += 1
                                     else:
                                         error_count += 1
@@ -1225,6 +1267,24 @@ if st.session_state.get("authentication_status"):
                                     if not success:
                                         st.error(f"解析結果の保存に失敗: {message}")
                                     
+                                    # データベースに保存
+                                    try:
+                                        # 標準形式のDataFrameを作成
+                                        df_line = pd.DataFrame(records)
+                                        if not df_line.empty:
+                                            # 列名を日本語に変換
+                                            df_line.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
+                                            # バッチIDを生成
+                                            jst = pytz.timezone("Asia/Tokyo")
+                                            now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
+                                            batch_id = f"LINE_{order['timestamp']}_{now_str}"
+                                            
+                                            # データベースに保存
+                                            save_order_lines(df_line, batch_id, note=f"LINE注文解析_{order['sender_name']}")
+                                            st.success(f"データベースに保存しました（バッチID: {batch_id}）")
+                                    except Exception as db_error:
+                                        st.error(f"データベース保存エラー: {db_error}")
+                                    
                                     st.success("LINE注文の解析が完了しました！")
                                     st.rerun()
                                     
@@ -1253,9 +1313,6 @@ if st.session_state.get("authentication_status"):
             st.info("未処理のLINE注文はありません。")
     else:
         st.info("LINE注文データはありません。手動アップロード機能をご利用ください。")
-    
-    # タブ構成で画面を整理
-    tab1, tab2, tab3 = st.tabs(["📤 アップロード/解析", "📋 編集（注文一覧）", "🕘 履歴（DB）"])
     
     with tab1:
         st.subheader("注文データファイルのアップロード")
@@ -1604,59 +1661,65 @@ if st.session_state.get("authentication_status"):
             st.info("注文ファイルをアップロードしてください")
     
     with tab3:
-        st.subheader("🕘 保存済みバッチ履歴")
+        st.subheader("🕘 保存済みデータ履歴")
         
-        # バッチ統計情報
-        stats = get_batch_stats()
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("総バッチ数", stats["total_batches"])
-        with col2:
-            st.metric("総注文行数", stats["total_lines"])
-        with col3:
-            latest = stats["latest_batch"]
-            if latest:
-                st.metric("最新バッチ", latest[0])
-            else:
-                st.metric("最新バッチ", "なし")
+        # 全データを取得（データ積み上げ方式）
+        init_db()
+        with _conn() as c:
+            cur = c.execute("""
+            SELECT order_id as '伝票番号', order_date as '発注日', delivery_date as '納品日', partner_name as '取引先名',
+                   product_code as '商品コード', product_name as '商品名', quantity as '数量', unit as '単位',
+                   unit_price as '単価', amount as '金額', remark as '備考', data_source as 'データ元',
+                   batch_id as 'バッチID', created_at as '登録日時'
+            FROM order_lines
+            ORDER BY created_at DESC
+            """)
+            rows = cur.fetchall()
+            cols = [d[0] for d in cur.description]
         
-        # バッチ一覧
-        batches = list_batches()
-        if not batches:
-            st.info("保存済みのバッチはまだありません。")
+        if not rows:
+            st.info("保存済みのデータはまだありません。")
         else:
-            labels = [f"{b[0]} / {b[1]} {b[2]}" for b in batches]
-            selected = st.selectbox("バッチを選択", labels, index=0)
-            sel_id = batches[labels.index(selected)][0]
-            df_hist = load_batch(sel_id)
-            st.dataframe(df_hist, use_container_width=True, hide_index=True)
+            df_all = pd.DataFrame(rows, columns=cols)
+            
+            # 統計情報
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("総データ行数", len(df_all))
+            with col2:
+                unique_batches = df_all['バッチID'].nunique()
+                st.metric("総バッチ数", unique_batches)
+            with col3:
+                latest_date = df_all['登録日時'].iloc[0] if not df_all.empty else "なし"
+                st.metric("最新登録", latest_date)
+            
+            # データ表示（編集不可）
+            st.dataframe(df_all, use_container_width=True, hide_index=True)
 
-            # このバッチでExcel再生成
-            if st.button("このバッチでExcelを作成"):
-                # 列名を英語に戻す
-                df_hist_eng = df_hist.copy()
-                df_hist_eng.columns = ["order_id", "order_date", "delivery_date", "partner_name",
-                                     "product_code", "product_name", "quantity", "unit", 
-                                     "unit_price", "amount", "remark", "data_source"]
-                
-                # Excel生成
-                output_hist = io.BytesIO()
-                with pd.ExcelWriter(output_hist, engine='xlsxwriter') as writer:
+            # 全データでExcel再生成
+            if st.button("全データでExcelを作成"):
+                # Excel生成（日本語列名のまま使用）
+                output_all = io.BytesIO()
+                with pd.ExcelWriter(output_all, engine='xlsxwriter') as writer:
                     workbook = writer.book
                     header_format = workbook.add_format({'bold': False, 'border': 0})
                     
                     # 注文一覧シート
-                    df_hist_eng.to_excel(writer, index=False, sheet_name="注文一覧", startrow=1, header=False)
-                    worksheet = writer.sheets["注文一覧"]
-                    for col_num, value in enumerate(df_hist_eng.columns.values):
+                    df_all.to_excel(writer, index=False, sheet_name="全注文履歴", startrow=1, header=False)
+                    worksheet = writer.sheets["全注文履歴"]
+                    for col_num, value in enumerate(df_all.columns.values):
                         worksheet.write(0, col_num, value, header_format)
                 
-                output_hist.seek(0)
+                output_all.seek(0)
+                
+                # ファイル名に現在の日時を含める
+                jst = pytz.timezone("Asia/Tokyo")
+                now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
                 
                 st.download_button(
-                    label="履歴Excelをダウンロード",
-                    data=output_hist,
-                    file_name=f"履歴_{sel_id}.xlsx",
+                    label="全履歴Excelをダウンロード",
+                    data=output_all,
+                    file_name=f"全注文履歴_{now_str}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
