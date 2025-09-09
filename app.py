@@ -1687,7 +1687,7 @@ if st.session_state.get("authentication_status"):
         init_db()
         with _conn() as c:
             cur = c.execute("""
-            SELECT order_id as '伝票番号', order_date as '発注日', delivery_date as '納品日', partner_name as '取引先名',
+            SELECT id, order_id as '伝票番号', order_date as '発注日', delivery_date as '納品日', partner_name as '取引先名',
                    product_code as '商品コード', product_name as '商品名', quantity as '数量', unit as '単位',
                    unit_price as '単価', amount as '金額', remark as '備考', data_source as 'データ元',
                    batch_id as 'バッチID', created_at as '登録日時'
@@ -1713,35 +1713,93 @@ if st.session_state.get("authentication_status"):
                 latest_date = df_all['登録日時'].iloc[0] if not df_all.empty else "なし"
                 st.metric("最新登録", latest_date)
             
-            # データ表示（編集不可）
-            st.dataframe(df_all, use_container_width=True, hide_index=True)
+            # データ表示（編集不可、ID列は非表示）
+            df_display = df_all.drop('id', axis=1)  # ID列を非表示
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-            # 全データでExcel再生成
-            if st.button("全データでExcelを作成"):
-                # Excel生成（日本語列名のまま使用）
-                output_all = io.BytesIO()
-                with pd.ExcelWriter(output_all, engine='xlsxwriter') as writer:
-                    workbook = writer.book
-                    header_format = workbook.add_format({'bold': False, 'border': 0})
-                    
-                    # 注文一覧シート
-                    df_all.to_excel(writer, index=False, sheet_name="全注文履歴", startrow=1, header=False)
-                    worksheet = writer.sheets["全注文履歴"]
-                    for col_num, value in enumerate(df_all.columns.values):
-                        worksheet.write(0, col_num, value, header_format)
-                
-                output_all.seek(0)
-                
-                # ファイル名に現在の日時を含める
-                jst = pytz.timezone("Asia/Tokyo")
-                now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
-                
-                st.download_button(
-                    label="全履歴Excelをダウンロード",
-                    data=output_all,
-                    file_name=f"全注文履歴_{now_str}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            # 行削除機能
+            st.subheader("🗑️ データ削除")
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                # 削除対象の行を選択（IDベース）
+                selected_ids = st.multiselect(
+                    "削除する行を選択",
+                    options=df_all['id'].tolist(),
+                    format_func=lambda x: f"ID {x}: {df_all[df_all['id'] == x]['商品名'].iloc[0]} - {df_all[df_all['id'] == x]['取引先名'].iloc[0]}",
+                    help="削除したい行のIDを選択してください"
                 )
+            
+            with col2:
+                st.write("")  # 上部の空白を調整
+                if st.button("選択した行を削除", type="secondary", disabled=len(selected_ids) == 0):
+                    if selected_ids:
+                        try:
+                            # データベースから削除
+                            deleted_count = 0
+                            with _conn() as c:
+                                for row_id in selected_ids:
+                                    c.execute("DELETE FROM order_lines WHERE id = ?", (row_id,))
+                                    deleted_count += 1
+                            
+                            st.success(f"{deleted_count}行を削除しました")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"削除エラー: {e}")
+            
+            # バッチ単位での削除
+            st.subheader("🗑️ バッチ単位削除")
+            unique_batches = df_all['バッチID'].unique()
+            if len(unique_batches) > 0:
+                selected_batch = st.selectbox(
+                    "削除するバッチを選択",
+                    options=unique_batches,
+                    format_func=lambda x: f"{x} ({len(df_all[df_all['バッチID'] == x])}行)"
+                )
+                
+                col1, col2 = st.columns([2, 1])
+                with col1:
+                    st.warning(f"選択されたバッチ: {selected_batch}")
+                    st.info(f"削除対象: {len(df_all[df_all['バッチID'] == selected_batch])}行")
+                
+                with col2:
+                    if st.button("バッチを削除", type="secondary"):
+                        try:
+                            # バッチ内の全行を削除
+                            with _conn() as c:
+                                c.execute("DELETE FROM order_lines WHERE batch_id = ?", (selected_batch,))
+                                c.execute("DELETE FROM batches WHERE batch_id = ?", (selected_batch,))
+                            
+                            st.success(f"バッチ '{selected_batch}' を削除しました")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"バッチ削除エラー: {e}")
+
+            # 全履歴Excelをダウンロード
+            jst = pytz.timezone("Asia/Tokyo")
+            now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
+            
+            # Excel生成（日本語列名のまま使用）
+            output_all = io.BytesIO()
+            with pd.ExcelWriter(output_all, engine='xlsxwriter') as writer:
+                workbook = writer.book
+                header_format = workbook.add_format({'bold': False, 'border': 0})
+                
+                # 注文一覧シート
+                df_all.to_excel(writer, index=False, sheet_name="全注文履歴", startrow=1, header=False)
+                worksheet = writer.sheets["全注文履歴"]
+                for col_num, value in enumerate(df_all.columns.values):
+                    worksheet.write(0, col_num, value, header_format)
+            
+            output_all.seek(0)
+            
+            st.download_button(
+                label="全履歴Excelをダウンロード",
+                data=output_all,
+                file_name=f"全注文履歴_{now_str}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_all_history"
+            )
 
 elif st.session_state.get("authentication_status") is False:
     st.error("ユーザー名またはパスワードが正しくありません。")
