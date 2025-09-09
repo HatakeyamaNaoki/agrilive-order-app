@@ -1034,103 +1034,205 @@ if st.session_state.get("authentication_status"):
     # タブ構成で画面を整理
     tab1, tab2, tab3 = st.tabs(["📤 アップロード/解析", "📋 編集（注文一覧）", "🕘 履歴（DB）"])
     
-    # LINE注文データの表示
-    line_orders = get_line_orders_for_user(username)
-    
-    # LINE注文データの表示
-    st.subheader("📱 LINE注文データ")
-    
-    # 統計情報
-    if line_orders:
-        total_orders = len(line_orders)
-        unprocessed_orders = [order for order in line_orders if not order.get("processed", False)]
-        processed_orders = [order for order in line_orders if order.get("processed", False)]
+    with tab1:
+        # LINE注文データの表示
+        line_orders = get_line_orders_for_user(username)
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("総注文数", total_orders)
-        with col2:
-            st.metric("未処理", len(unprocessed_orders))
-        with col3:
-            st.metric("処理済み", len(processed_orders))
-    
-    # 手動アップロード機能（レイアウトを統一）
-    with st.expander("📤 LINE画像を手動アップロード"):
-        uploaded_line_image = st.file_uploader(
-            "LINEの注文画像をアップロード",
-            type=['png', 'jpg', 'jpeg'],
-            key="line_image_upload"
-        )
+        # LINE注文データの表示
+        st.subheader("📱 LINE注文データ")
         
-        if uploaded_line_image:
-            col1, col2 = st.columns([3, 1])
+        # 統計情報
+        if line_orders:
+            total_orders = len(line_orders)
+            unprocessed_orders = [order for order in line_orders if not order.get("processed", False)]
+            processed_orders = [order for order in line_orders if order.get("processed", False)]
             
+            col1, col2, col3 = st.columns(3)
             with col1:
-                st.image(uploaded_line_image, caption="アップロードされたLINE画像", width=400)
-            
+                st.metric("総注文数", total_orders)
             with col2:
-                st.write("")  # 上部の空白を調整
-                sender_name = st.text_input("送信者名", value="", key="sender_name")
-                message_text = st.text_area("メッセージ内容（オプション）", key="message_text")
-                
-                if st.button("LINE注文として保存", key="save_line_order"):
-                    try:
-                        # 画像データを保存
-                        image_data = uploaded_line_image.read()
-                        
-                        success, message = save_line_order_data(
-                            username,  # ユーザー名をLINEアカウントIDとして使用
-                            sender_name or "不明",
-                            image_data,
-                            message_text
-                        )
-                        
-                        if success:
-                            st.success("LINE注文データを保存しました！")
-                            st.info(f"保存されたデータ: 送信者={sender_name or '不明'}, ユーザー={username}")
-                            
-                            # 保存後のデータ確認
-                            st.info("保存後のデータ確認:")
-                            orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
-                            if os.path.exists(orders_file):
-                                with open(orders_file, "r", encoding="utf-8") as f:
-                                    all_orders = json.load(f)
-                                st.info(f"- 全注文データ数: {len(all_orders)}")
-                                for i, order in enumerate(all_orders[-3:]):  # 最新3件
-                                    st.info(f"- 注文{i+1}: line_account={order.get('line_account')}, sender_name={order.get('sender_name')}")
-                            
-                            # 3秒間待機してからページを再読み込み
-                            import time
-                            time.sleep(3)
-                            st.rerun()
-                        else:
-                            st.error(f"保存エラー: {message}")
-                    except Exception as e:
-                        st.error(f"保存エラー: {e}")
-                        st.error(f"詳細: {str(e)}")
-    
-    # 既存のLINE注文データ表示
-    if line_orders:
+                st.metric("未処理", len(unprocessed_orders))
+            with col3:
+                st.metric("処理済み", len(processed_orders))
         
-        # 未処理の注文のみを表示
-        unprocessed_orders = [order for order in line_orders if not order.get("processed", False)]
-        
-        if unprocessed_orders:
-            st.info(f"未処理のLINE注文が {len(unprocessed_orders)} 件あります。")
+        # 手動アップロード機能（レイアウトを統一）
+        with st.expander("📤 LINE画像を手動アップロード"):
+            uploaded_line_image = st.file_uploader(
+                "LINEの注文画像をアップロード",
+                type=['png', 'jpg', 'jpeg'],
+                key="line_image_upload"
+            )
             
-            # 一括解析ボタンを追加
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                if st.button("🚀 一括解析開始", type="primary", key="batch_parse"):
-                    try:
-                        with st.spinner(f"{len(unprocessed_orders)}件のLINE注文を一括解析中..."):
-                            processed_count = 0
-                            error_count = 0
+            if uploaded_line_image:
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.image(uploaded_line_image, caption="アップロードされたLINE画像", width=400)
+                
+                with col2:
+                    st.write("")  # 上部の空白を調整
+                    sender_name = st.text_input("送信者名", value="", key="sender_name")
+                    message_text = st.text_area("メッセージ内容（オプション）", key="message_text")
+                    
+                    if st.button("LINE注文として保存", key="save_line_order"):
+                        try:
+                            # 画像データを保存
+                            image_data = uploaded_line_image.read()
                             
+                            success, message = save_line_order_data(
+                                username,  # ユーザー名をLINEアカウントIDとして使用
+                                sender_name or "不明",
+                                image_data,
+                                message_text
+                            )
+                            
+                            if success:
+                                st.success("LINE注文データを保存しました！")
+                                st.info(f"保存されたデータ: 送信者={sender_name or '不明'}, ユーザー={username}")
+                                
+                                # 保存後のデータ確認
+                                st.info("保存後のデータ確認:")
+                                orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+                                if os.path.exists(orders_file):
+                                    with open(orders_file, "r", encoding="utf-8") as f:
+                                        all_orders = json.load(f)
+                                    st.info(f"- 全注文データ数: {len(all_orders)}")
+                                    for i, order in enumerate(all_orders[-3:]):  # 最新3件
+                                        st.info(f"- 注文{i+1}: line_account={order.get('line_account')}, sender_name={order.get('sender_name')}")
+                                
+                                # 3秒間待機してからページを再読み込み
+                                import time
+                                time.sleep(3)
+                                st.rerun()
+                            else:
+                                st.error(f"保存エラー: {message}")
+                        except Exception as e:
+                            st.error(f"保存エラー: {e}")
+                            st.error(f"詳細: {str(e)}")
+        
+        # 既存のLINE注文データ表示
+        if line_orders:
+            
+            # 未処理の注文のみを表示
+            unprocessed_orders = [order for order in line_orders if not order.get("processed", False)]
+            
+            if unprocessed_orders:
+                st.info(f"未処理のLINE注文が {len(unprocessed_orders)} 件あります。")
+                
+                # 一括解析ボタンを追加
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    if st.button("🚀 一括解析開始", type="primary", key="batch_parse"):
+                        try:
+                            with st.spinner(f"{len(unprocessed_orders)}件のLINE注文を一括解析中..."):
+                                processed_count = 0
+                                error_count = 0
+                                
+                                for order in unprocessed_orders:
+                                    try:
+                                        image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+                                        if os.path.exists(image_path):
+                                            # OpenAI APIで解析
+                                            parsed_data = parse_line_order_with_openai(
+                                                image_path, 
+                                                order['sender_name'], 
+                                                order.get('message_text', ''),
+                                                order['order_date'] # 受信日時を渡す
+                                            )
+                                            
+                                            # 解析結果を保存
+                                            success, message = save_parsed_line_order_data(order['timestamp'], parsed_data)
+                                            if not success:
+                                                st.error(f"解析結果の保存に失敗: {message}")
+                                            
+                                            # データベースに保存
+                                            try:
+                                                # 標準形式に変換
+                                                records = []
+                                                delivery_date = parsed_data.get("delivery_date", order['order_date'])
+                                                items = parsed_data.get("items", [])
+                                                
+                                                for item in items:
+                                                    record = {
+                                                        "order_id": item.get("order_id", ""),
+                                                        "order_date": order['order_date'],
+                                                        "delivery_date": delivery_date,
+                                                        "partner_name": parsed_data.get("partner_name", order['sender_name']),
+                                                        "product_code": item.get("product_code", ""),
+                                                        "product_name": item.get("product_name", ""),
+                                                        "quantity": item.get("quantity", ""),
+                                                        "unit": item.get("unit", ""),
+                                                        "unit_price": item.get("unit_price", ""),
+                                                        "amount": item.get("amount", ""),
+                                                        "remark": item.get("remark", ""),
+                                                        "data_source": f"LINE注文_{order['timestamp']}"
+                                                    }
+                                                    records.append(record)
+                                                
+                                                # 標準形式のDataFrameを作成
+                                                df_line = pd.DataFrame(records)
+                                                if not df_line.empty:
+                                                    # 列名を日本語に変換
+                                                    df_line.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
+                                                    # バッチIDを生成
+                                                    jst = pytz.timezone("Asia/Tokyo")
+                                                    now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
+                                                    batch_id = f"LINE_{order['timestamp']}_{now_str}"
+                                                    
+                                                    # データベースに保存
+                                                    save_order_lines(df_line, batch_id, note=f"LINE注文一括解析_{order['sender_name']}")
+                                            except Exception as db_error:
+                                                st.error(f"データベース保存エラー ({order['sender_name']}): {db_error}")
+                                            
+                                            processed_count += 1
+                                        else:
+                                            error_count += 1
+                                    except Exception as e:
+                                        error_count += 1
+                                        st.error(f"解析エラー ({order['sender_name']}): {e}")
+                                
+                                st.success(f"一括解析完了！ 成功: {processed_count}件, エラー: {error_count}件")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"一括解析エラー: {e}")
+                
+                with col2:
+                    if st.button("🗑️ 未処理データ一括削除", type="secondary", key="batch_delete"):
+                        try:
+                            deleted_count = 0
                             for order in unprocessed_orders:
+                                success, message = delete_line_order_by_timestamp(order['timestamp'])
+                                if success:
+                                    deleted_count += 1
+                            
+                            st.success(f"未処理データを {deleted_count} 件削除しました。")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"一括削除エラー: {e}")
+                
+                st.markdown("---")
+                
+                for i, order in enumerate(unprocessed_orders):
+                    with st.expander(f"📋 {order['sender_name']} - {order['order_date']} ({order['timestamp']})"):
+                        col1, col2 = st.columns([2, 1])
+                        
+                        with col1:
+                            # 画像を表示
+                            image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+                            if os.path.exists(image_path):
+                                st.image(image_path, caption=f"LINE注文画像", width=400)
+                            
+                            # 注文情報を表示
+                            st.write(f"**送信者**: {order['sender_name']}")
+                            st.write(f"**受信日**: {order['order_date']}")
+                            if order.get('message_text'):
+                                st.write(f"**メッセージ**: {order['message_text']}")
+                        
+                        with col2:
+                            # 解析ボタン
+                            if st.button(f"解析開始", key=f"parse_{order['timestamp']}"):
                                 try:
-                                    image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
-                                    if os.path.exists(image_path):
+                                    with st.spinner("LINE注文を解析中..."):
                                         # OpenAI APIで解析
                                         parsed_data = parse_line_order_with_openai(
                                             image_path, 
@@ -1139,6 +1241,28 @@ if st.session_state.get("authentication_status"):
                                             order['order_date'] # 受信日時を渡す
                                         )
                                         
+                                        # 標準形式に変換
+                                        records = []
+                                        delivery_date = parsed_data.get("delivery_date", "")
+                                        items = parsed_data.get("items", [])
+                                        
+                                        for item in items:
+                                            record = {
+                                                "order_id": item.get("order_id", ""),
+                                                "order_date": order['order_date'],  # Webアプリでの受信日を使用
+                                                "delivery_date": delivery_date,
+                                                "partner_name": parsed_data.get("partner_name", order['sender_name']),
+                                                "product_code": item.get("product_code", ""),
+                                                "product_name": item.get("product_name", ""),
+                                                "quantity": item.get("quantity", ""),
+                                                "unit": item.get("unit", ""),
+                                                "unit_price": item.get("unit_price", ""),
+                                                "amount": item.get("amount", ""),
+                                                "remark": item.get("remark", ""),
+                                                "data_source": f"LINE注文_{order['timestamp']}"
+                                            }
+                                            records.append(record)
+                                        
                                         # 解析結果を保存
                                         success, message = save_parsed_line_order_data(order['timestamp'], parsed_data)
                                         if not success:
@@ -1146,28 +1270,6 @@ if st.session_state.get("authentication_status"):
                                         
                                         # データベースに保存
                                         try:
-                                            # 標準形式に変換
-                                            records = []
-                                            delivery_date = parsed_data.get("delivery_date", order['order_date'])
-                                            items = parsed_data.get("items", [])
-                                            
-                                            for item in items:
-                                                record = {
-                                                    "order_id": item.get("order_id", ""),
-                                                    "order_date": order['order_date'],
-                                                    "delivery_date": delivery_date,
-                                                    "partner_name": parsed_data.get("partner_name", order['sender_name']),
-                                                    "product_code": item.get("product_code", ""),
-                                                    "product_name": item.get("product_name", ""),
-                                                    "quantity": item.get("quantity", ""),
-                                                    "unit": item.get("unit", ""),
-                                                    "unit_price": item.get("unit_price", ""),
-                                                    "amount": item.get("amount", ""),
-                                                    "remark": item.get("remark", ""),
-                                                    "data_source": f"LINE注文_{order['timestamp']}"
-                                                }
-                                                records.append(record)
-                                            
                                             # 標準形式のDataFrameを作成
                                             df_line = pd.DataFrame(records)
                                             if not df_line.empty:
@@ -1179,140 +1281,39 @@ if st.session_state.get("authentication_status"):
                                                 batch_id = f"LINE_{order['timestamp']}_{now_str}"
                                                 
                                                 # データベースに保存
-                                                save_order_lines(df_line, batch_id, note=f"LINE注文一括解析_{order['sender_name']}")
+                                                save_order_lines(df_line, batch_id, note=f"LINE注文解析_{order['sender_name']}")
+                                                st.success(f"データベースに保存しました（バッチID: {batch_id}）")
                                         except Exception as db_error:
-                                            st.error(f"データベース保存エラー ({order['sender_name']}): {db_error}")
+                                            st.error(f"データベース保存エラー: {db_error}")
                                         
-                                        processed_count += 1
-                                    else:
-                                        error_count += 1
+                                        st.success("LINE注文の解析が完了しました！")
+                                        st.rerun()
+                                        
                                 except Exception as e:
-                                    error_count += 1
-                                    st.error(f"解析エラー ({order['sender_name']}): {e}")
+                                    st.error(f"LINE注文解析エラー: {e}")
                             
-                            st.success(f"一括解析完了！ 成功: {processed_count}件, エラー: {error_count}件")
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"一括解析エラー: {e}")
-            
-            with col2:
-                if st.button("🗑️ 未処理データ一括削除", type="secondary", key="batch_delete"):
-                    try:
-                        deleted_count = 0
-                        for order in unprocessed_orders:
-                            success, message = delete_line_order_by_timestamp(order['timestamp'])
-                            if success:
-                                deleted_count += 1
-                        
-                        st.success(f"未処理データを {deleted_count} 件削除しました。")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"一括削除エラー: {e}")
-            
-            st.markdown("---")
-            
-            for i, order in enumerate(unprocessed_orders):
-                with st.expander(f"📋 {order['sender_name']} - {order['order_date']} ({order['timestamp']})"):
-                    col1, col2 = st.columns([2, 1])
-                    
-                    with col1:
-                        # 画像を表示
-                        image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
-                        if os.path.exists(image_path):
-                            st.image(image_path, caption=f"LINE注文画像", width=400)
-                        
-                        # 注文情報を表示
-                        st.write(f"**送信者**: {order['sender_name']}")
-                        st.write(f"**受信日**: {order['order_date']}")
-                        if order.get('message_text'):
-                            st.write(f"**メッセージ**: {order['message_text']}")
-                    
-                    with col2:
-                        # 解析ボタン
-                        if st.button(f"解析開始", key=f"parse_{order['timestamp']}"):
-                            try:
-                                with st.spinner("LINE注文を解析中..."):
-                                    # OpenAI APIで解析
-                                    parsed_data = parse_line_order_with_openai(
-                                        image_path, 
-                                        order['sender_name'], 
-                                        order.get('message_text', ''),
-                                        order['order_date'] # 受信日時を渡す
-                                    )
-                                    
-                                    # 標準形式に変換
-                                    records = []
-                                    delivery_date = parsed_data.get("delivery_date", "")
-                                    items = parsed_data.get("items", [])
-                                    
-                                    for item in items:
-                                        record = {
-                                            "order_id": item.get("order_id", ""),
-                                            "order_date": order['order_date'],  # Webアプリでの受信日を使用
-                                            "delivery_date": delivery_date,
-                                            "partner_name": parsed_data.get("partner_name", order['sender_name']),
-                                            "product_code": item.get("product_code", ""),
-                                            "product_name": item.get("product_name", ""),
-                                            "quantity": item.get("quantity", ""),
-                                            "unit": item.get("unit", ""),
-                                            "unit_price": item.get("unit_price", ""),
-                                            "amount": item.get("amount", ""),
-                                            "remark": item.get("remark", ""),
-                                            "data_source": f"LINE注文_{order['timestamp']}"
-                                        }
-                                        records.append(record)
-                                    
-                                    # 解析結果を保存
-                                    success, message = save_parsed_line_order_data(order['timestamp'], parsed_data)
-                                    if not success:
-                                        st.error(f"解析結果の保存に失敗: {message}")
-                                    
-                                    # データベースに保存
-                                    try:
-                                        # 標準形式のDataFrameを作成
-                                        df_line = pd.DataFrame(records)
-                                        if not df_line.empty:
-                                            # 列名を日本語に変換
-                                            df_line.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
-                                            # バッチIDを生成
-                                            jst = pytz.timezone("Asia/Tokyo")
-                                            now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
-                                            batch_id = f"LINE_{order['timestamp']}_{now_str}"
-                                            
-                                            # データベースに保存
-                                            save_order_lines(df_line, batch_id, note=f"LINE注文解析_{order['sender_name']}")
-                                            st.success(f"データベースに保存しました（バッチID: {batch_id}）")
-                                    except Exception as db_error:
-                                        st.error(f"データベース保存エラー: {db_error}")
-                                    
-                                    st.success("LINE注文の解析が完了しました！")
-                                    st.rerun()
-                                    
-                            except Exception as e:
-                                st.error(f"LINE注文解析エラー: {e}")
-                        
-                        # 削除ボタン
-                        if st.button(f"削除", key=f"delete_{order['timestamp']}"):
-                            # 注文データを削除
-                            orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
-                            with open(orders_file, "r", encoding="utf-8") as f:
-                                all_orders = json.load(f)
-                            
-                            all_orders = [o for o in all_orders if o['timestamp'] != order['timestamp']]
-                            
-                            with open(orders_file, "w", encoding="utf-8") as f:
-                                json.dump(all_orders, f, ensure_ascii=False, indent=4)
-                            
-                            # 画像ファイルも削除
-                            if os.path.exists(image_path):
-                                os.remove(image_path)
-                            
-                            st.success("LINE注文を削除しました。")
-                            st.rerun()
+                            # 削除ボタン
+                            if st.button(f"削除", key=f"delete_{order['timestamp']}"):
+                                # 注文データを削除
+                                orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
+                                with open(orders_file, "r", encoding="utf-8") as f:
+                                    all_orders = json.load(f)
+                                
+                                all_orders = [o for o in all_orders if o['timestamp'] != order['timestamp']]
+                                
+                                with open(orders_file, "w", encoding="utf-8") as f:
+                                    json.dump(all_orders, f, ensure_ascii=False, indent=4)
+                                
+                                # 画像ファイルも削除
+                                if os.path.exists(image_path):
+                                    os.remove(image_path)
+                                
+                                st.success("LINE注文を削除しました。")
+                                st.rerun()
+            else:
+                st.info("未処理のLINE注文はありません。")
         else:
-            st.info("未処理のLINE注文はありません。")
-    else:
-        st.info("LINE注文データはありません。手動アップロード機能をご利用ください。")
+            st.info("LINE注文データはありません。手動アップロード機能をご利用ください。")
     
     with tab1:
         st.subheader("注文データファイルのアップロード")
@@ -1543,6 +1544,25 @@ if st.session_state.get("authentication_status"):
             
             # 解析済みデータをセッションに保存
             st.session_state.parsed_records = records
+            
+            # ファイルアップロード・解析時にデータベースに保存
+            if records:
+                try:
+                    # 標準形式のDataFrameを作成
+                    df_upload = pd.DataFrame(records)
+                    if not df_upload.empty:
+                        # 列名を日本語に変換
+                        df_upload.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
+                        # バッチIDを生成
+                        jst = pytz.timezone("Asia/Tokyo")
+                        now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
+                        batch_id = f"FILE_{now_str}"
+                        
+                        # データベースに保存
+                        save_order_lines(df_upload, batch_id, note="ファイルアップロード解析")
+                        st.success(f"データベースに保存しました（バッチID: {batch_id}）")
+                except Exception as db_error:
+                    st.error(f"データベース保存エラー: {db_error}")
         else:
             # 編集済みの場合は既存のデータを表示
             st.info("📝 データが編集されています。ファイルを再アップロードすると再解析されます。")
