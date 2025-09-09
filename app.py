@@ -1544,25 +1544,6 @@ if st.session_state.get("authentication_status"):
             
             # 解析済みデータをセッションに保存
             st.session_state.parsed_records = records
-            
-            # ファイルアップロード・解析時にデータベースに保存
-            if records:
-                try:
-                    # 標準形式のDataFrameを作成
-                    df_upload = pd.DataFrame(records)
-                    if not df_upload.empty:
-                        # 列名を日本語に変換
-                        df_upload.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
-                        # バッチIDを生成
-                        jst = pytz.timezone("Asia/Tokyo")
-                        now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
-                        batch_id = f"FILE_{now_str}"
-                        
-                        # データベースに保存
-                        save_order_lines(df_upload, batch_id, note="ファイルアップロード解析")
-                        st.success(f"データベースに保存しました（バッチID: {batch_id}）")
-                except Exception as db_error:
-                    st.error(f"データベース保存エラー: {db_error}")
         else:
             # 編集済みの場合は既存のデータを表示
             st.info("📝 データが編集されています。ファイルを再アップロードすると再解析されます。")
@@ -1571,6 +1552,25 @@ if st.session_state.get("authentication_status"):
                 st.rerun()
             # 編集済みの場合も既存のデータを使用
             records = st.session_state.parsed_records.copy()
+        
+        # 新しいファイルがアップロードされた場合のみデータベースに保存
+        if records and not st.session_state.data_edited:
+            try:
+                # 標準形式のDataFrameを作成
+                df_upload = pd.DataFrame(records)
+                if not df_upload.empty:
+                    # 列名を日本語に変換
+                    df_upload.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
+                    # バッチIDを生成
+                    jst = pytz.timezone("Asia/Tokyo")
+                    now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
+                    batch_id = f"FILE_{now_str}"
+                    
+                    # データベースに保存
+                    save_order_lines(df_upload, batch_id, note="ファイルアップロード解析")
+                    st.success(f"データベースに保存しました（バッチID: {batch_id}）")
+            except Exception as db_error:
+                st.error(f"データベース保存エラー: {db_error}")
 
     with tab2:
         # レコードが存在する場合（空でも表示）
@@ -1647,13 +1647,6 @@ if st.session_state.get("authentication_status"):
                     worksheet3.write(0, col_num, value, header_format)
 
             output.seek(0)
-            
-            # データベースに保存
-            try:
-                save_order_lines(edited_df, now_str, note="画面から出力")
-                st.success(f"データベースに保存しました（バッチID: {now_str}）")
-            except Exception as e:
-                st.error(f"DB保存に失敗しました: {e}")
             
             # ダウンロードボタンと削除ボタンを横に並べる
             col1, col2 = st.columns([3, 1])
