@@ -21,6 +21,7 @@ import sqlite3
 from pathlib import Path
 import tempfile
 import filelock
+from db import init_db, save_order_lines, list_batches, load_batch, get_batch_stats, DB_PATH
 
 # LINE注文データ管理用のディレクトリ
 LINE_ORDERS_DIR = "line_orders"
@@ -820,6 +821,10 @@ if st.session_state.get("authentication_status"):
     # ログアウトボタンを一番上に配置
     authenticator.logout('ログアウト', 'sidebar')
     
+    # データベース初期化
+    init_db()
+    st.sidebar.info(f"DB: {DB_PATH}")
+    
     # データ更新ボタンをサイドバーに移動
     st.sidebar.markdown("---")
     if st.sidebar.button("🔄 データを更新", key="refresh_data_sidebar"):
@@ -1249,342 +1254,411 @@ if st.session_state.get("authentication_status"):
     else:
         st.info("LINE注文データはありません。手動アップロード機能をご利用ください。")
     
-    st.subheader("注文データファイルのアップロード")
+    # タブ構成で画面を整理
+    tab1, tab2, tab3 = st.tabs(["📤 アップロード/解析", "📋 編集（注文一覧）", "🕘 履歴（DB）"])
     
-    # セッション状態の初期化（ファイルアップローダーの前に配置）
-    if 'data_edited' not in st.session_state:
-        st.session_state.data_edited = False
-    
-    if 'processed_files' not in st.session_state:
-        st.session_state.processed_files = set()
-    
-    if 'parsed_records' not in st.session_state:
-        st.session_state.parsed_records = []
-    
-    # PDF画像表示設定（カラムレイアウトを調整して縦位置を合わせる）
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        uploaded_files = st.file_uploader(
-            label="Infomart / IPORTER / PDF 等の注文ファイルをここにドラッグ＆ドロップまたは選択してください",
-            accept_multiple_files=True,
-            type=['txt', 'csv', 'xlsx', 'pdf'],
-            key="file_uploader"
-        )
-        # 新しいファイルがアップロードされた場合のみ編集状態をリセット
-        if uploaded_files:
-            new_files_count = 0
-            for file in uploaded_files:
-                file_hash = f"{file.name}_{file.size}_{file.type}"
-                if file_hash not in st.session_state.processed_files:
-                    new_files_count += 1
-            
-            if new_files_count > 0:
-                st.session_state.data_edited = False
-    with col2:
-        st.write("")  # 上部の空白を調整
-        show_pdf_images = st.checkbox("PDF画像を表示", value=True, help="PDFファイルの画像を表示するかどうかを設定します")
+    with tab1:
+        st.subheader("注文データファイルのアップロード")
         
-        # 解析済みファイルリセットボタン
-        if st.button("🔄 解析済みファイルをリセット", key="reset_processed_files", help="解析済みファイルの履歴をクリアします"):
-            st.session_state.processed_files = set()
+        # セッション状態の初期化（ファイルアップローダーの前に配置）
+        if 'data_edited' not in st.session_state:
             st.session_state.data_edited = False
-            st.session_state.parsed_records = []  # 解析済みデータもクリア
-            st.success("解析済みファイルをリセットしました。")
-            st.rerun()
-
-    records = []
-    debug_details = []
-    
-    # LINE注文データを取得（スコープ外でも使用するため、ここで定義）
-    line_orders = get_line_orders_for_user(username)
-    processed_line_orders = [order for order in line_orders if order.get("processed", False)]
-    
-    # 編集済みの場合は再解析をスキップ
-    if not st.session_state.data_edited:
-        # 既存の解析済みデータを取得
-        records = st.session_state.parsed_records.copy()
         
-        # 全データ表示機能を追加
-        if processed_line_orders:
-            st.subheader("📱 解析済みLINE注文データ")
-            
-            # 統計情報
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("解析済みLINE注文", len(processed_line_orders))
-            with col2:
-                st.metric("送信者数", len(set(order['sender_name'] for order in processed_line_orders)))
-            with col3:
-                st.metric("最新更新", max(order['order_date'] for order in processed_line_orders) if processed_line_orders else "なし")
-            
-            # 解析済みデータの詳細表示（レイアウトを統一）
-            with st.expander("📋 解析済みLINE注文詳細", expanded=False):
-                for i, order in enumerate(processed_line_orders):
-                    col1, col2 = st.columns([3, 1])
-                    
-                    with col1:
-                        st.write(f"**{i+1}. {order['sender_name']} - {order['order_date']}**")
-                        st.write(f"受信日時: {order['timestamp']}")
-                        if order.get('message_text'):
-                            st.write(f"メッセージ: {order['message_text']}")
-                    
-                    with col2:
-                        st.write("")  # 上部の空白を調整
-                        # 画像表示
-                        image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
-                        if os.path.exists(image_path):
-                            st.image(image_path, caption="LINE注文画像", width=200)
-                    
-                    st.markdown("---")
+        if 'processed_files' not in st.session_state:
+            st.session_state.processed_files = set()
         
-        # LINE注文データをrecordsに追加（まだ追加されていない場合のみ）
-        existing_line_sources = {record.get("data_source", "") for record in records}
-        for order in processed_line_orders:
-            line_source = f"LINE注文_{order['timestamp']}"
-            if line_source not in existing_line_sources:
-                # 処理済みのLINE注文データをrecordsに追加
-                st.info(f"処理済みLINE注文データ: {order['sender_name']} - {order['order_date']}")
+        if 'parsed_records' not in st.session_state:
+            st.session_state.parsed_records = []
+        
+        # PDF画像表示設定（カラムレイアウトを調整して縦位置を合わせる）
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            uploaded_files = st.file_uploader(
+                label="Infomart / IPORTER / PDF 等の注文ファイルをここにドラッグ＆ドロップまたは選択してください",
+                accept_multiple_files=True,
+                type=['txt', 'csv', 'xlsx', 'pdf'],
+                key="file_uploader"
+            )
+            # 新しいファイルがアップロードされた場合のみ編集状態をリセット
+            if uploaded_files:
+                new_files_count = 0
+                for file in uploaded_files:
+                    file_hash = f"{file.name}_{file.size}_{file.type}"
+                    if file_hash not in st.session_state.processed_files:
+                        new_files_count += 1
                 
-                # 保存された解析結果を取得
-                parsed_data = order.get('parsed_data')
-                if parsed_data:
-                    # 解析結果から商品情報を取得
-                    delivery_date = parsed_data.get("delivery_date", order['order_date'])
-                    items = parsed_data.get("items", [])
+                if new_files_count > 0:
+                    st.session_state.data_edited = False
+        with col2:
+            st.write("")  # 上部の空白を調整
+            show_pdf_images = st.checkbox("PDF画像を表示", value=True, help="PDFファイルの画像を表示するかどうかを設定します")
+            
+            # 解析済みファイルリセットボタン
+            if st.button("🔄 解析済みファイルをリセット", key="reset_processed_files", help="解析済みファイルの履歴をクリアします"):
+                st.session_state.processed_files = set()
+                st.session_state.data_edited = False
+                st.session_state.parsed_records = []  # 解析済みデータもクリア
+                st.success("解析済みファイルをリセットしました。")
+                st.rerun()
+
+        records = []
+        debug_details = []
+        
+        # LINE注文データを取得（スコープ外でも使用するため、ここで定義）
+        line_orders = get_line_orders_for_user(username)
+        processed_line_orders = [order for order in line_orders if order.get("processed", False)]
+        
+        # 編集済みの場合は再解析をスキップ
+        if not st.session_state.data_edited:
+            # 既存の解析済みデータを取得
+            records = st.session_state.parsed_records.copy()
+            
+            # 全データ表示機能を追加
+            if processed_line_orders:
+                st.subheader("📱 解析済みLINE注文データ")
+                
+                # 統計情報
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("解析済みLINE注文", len(processed_line_orders))
+                with col2:
+                    st.metric("送信者数", len(set(order['sender_name'] for order in processed_line_orders)))
+                with col3:
+                    st.metric("最新更新", max(order['order_date'] for order in processed_line_orders) if processed_line_orders else "なし")
+                
+                # 解析済みデータの詳細表示（レイアウトを統一）
+                with st.expander("📋 解析済みLINE注文詳細", expanded=False):
+                    for i, order in enumerate(processed_line_orders):
+                        col1, col2 = st.columns([3, 1])
+                        
+                        with col1:
+                            st.write(f"**{i+1}. {order['sender_name']} - {order['order_date']}**")
+                            st.write(f"受信日時: {order['timestamp']}")
+                            if order.get('message_text'):
+                                st.write(f"メッセージ: {order['message_text']}")
+                        
+                        with col2:
+                            st.write("")  # 上部の空白を調整
+                            # 画像表示
+                            image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+                            if os.path.exists(image_path):
+                                st.image(image_path, caption="LINE注文画像", width=200)
+                        
+                        st.markdown("---")
+            
+            # LINE注文データをrecordsに追加（まだ追加されていない場合のみ）
+            existing_line_sources = {record.get("data_source", "") for record in records}
+            for order in processed_line_orders:
+                line_source = f"LINE注文_{order['timestamp']}"
+                if line_source not in existing_line_sources:
+                    # 処理済みのLINE注文データをrecordsに追加
+                    st.info(f"処理済みLINE注文データ: {order['sender_name']} - {order['order_date']}")
                     
-                    for item in items:
+                    # 保存された解析結果を取得
+                    parsed_data = order.get('parsed_data')
+                    if parsed_data:
+                        # 解析結果から商品情報を取得
+                        delivery_date = parsed_data.get("delivery_date", order['order_date'])
+                        items = parsed_data.get("items", [])
+                        
+                        for item in items:
+                            record = {
+                                "order_id": f"LINE_{order['timestamp']}",
+                                "order_date": order['order_date'],
+                                "delivery_date": delivery_date,
+                                "partner_name": parsed_data.get("partner_name", order['sender_name']),
+                                "product_code": item.get("product_code", ""),
+                                "product_name": item.get("product_name", ""),
+                                "quantity": item.get("quantity", ""),
+                                "unit": item.get("unit", ""),
+                                "unit_price": item.get("unit_price", ""),
+                                "amount": item.get("amount", ""),
+                                "remark": item.get("remark", ""),
+                                "data_source": line_source
+                            }
+                            records.append(record)
+                    else:
+                        # 解析結果がない場合はダミーデータを追加
                         record = {
                             "order_id": f"LINE_{order['timestamp']}",
                             "order_date": order['order_date'],
-                            "delivery_date": delivery_date,
-                            "partner_name": parsed_data.get("partner_name", order['sender_name']),
-                            "product_code": item.get("product_code", ""),
-                            "product_name": item.get("product_name", ""),
-                            "quantity": item.get("quantity", ""),
-                            "unit": item.get("unit", ""),
-                            "unit_price": item.get("unit_price", ""),
-                            "amount": item.get("amount", ""),
-                            "remark": item.get("remark", ""),
+                            "delivery_date": order['order_date'],
+                            "partner_name": order['sender_name'],
+                            "product_code": "",
+                            "product_name": "LINE注文データ（解析結果なし）",
+                            "quantity": "",
+                            "unit": "",
+                            "unit_price": "",
+                            "amount": "",
+                            "remark": f"LINE注文 - {order['timestamp']}",
                             "data_source": line_source
                         }
                         records.append(record)
-                else:
-                    # 解析結果がない場合はダミーデータを追加
-                    record = {
-                        "order_id": f"LINE_{order['timestamp']}",
-                        "order_date": order['order_date'],
-                        "delivery_date": order['order_date'],
-                        "partner_name": order['sender_name'],
-                        "product_code": "",
-                        "product_name": "LINE注文データ（解析結果なし）",
-                        "quantity": "",
-                        "unit": "",
-                        "unit_price": "",
-                        "amount": "",
-                        "remark": f"LINE注文 - {order['timestamp']}",
-                        "data_source": line_source
-                    }
-                    records.append(record)
-        
-        if uploaded_files:
-            # 新しいファイルのみを処理
-            new_files = []
-            for file in uploaded_files:
-                file_hash = f"{file.name}_{file.size}_{file.type}"
-                if file_hash not in st.session_state.processed_files:
-                    new_files.append(file)
-                    st.session_state.processed_files.add(file_hash)
             
-            if new_files:
-                st.info(f"新しいファイル {len(new_files)} 件を解析します")
+            if uploaded_files:
+                # 新しいファイルのみを処理
+                new_files = []
+                for file in uploaded_files:
+                    file_hash = f"{file.name}_{file.size}_{file.type}"
+                    if file_hash not in st.session_state.processed_files:
+                        new_files.append(file)
+                        st.session_state.processed_files.add(file_hash)
                 
-                for file in new_files:
-                    filename = file.name
-                    content = file.read()
-
-                    if filename.lower().endswith((".txt", ".csv")):
-                        filetype, detected_enc, debug_log = detect_csv_type(content)
-                        debug_details.append(f"【{filename}】\n" + "\n".join(debug_log))
-                        file_like = io.BytesIO(content)
-                        if filetype == 'infomart':
-                            records += parse_infomart(file_like, filename)
-                        elif filetype == 'iporter':
-                            records += parse_iporter(file_like, filename)
-                        else:
-                            st.warning(f"{filename} は未対応のフォーマットです")
-
-                    elif filename.lower().endswith(".xlsx"):
-                        try:
-                            df_excel = pd.read_excel(io.BytesIO(content), sheet_name=0, header=None)
-                            if df_excel.shape[0] > 5 and str(df_excel.iloc[4, 1]).strip() == "伝票番号":
-                                file_like = io.BytesIO(content)
-                                try:
-                                    mitsubishi_records = parse_mitsubishi(file_like, filename)
-                                    records += mitsubishi_records
-                                    st.success(f"{filename} の解析が完了しました")
-                                except Exception as parse_error:
-                                    st.error(f"{filename} の解析に失敗しました: {parse_error}")
-                                    # ログから詳細情報を取得
-                                    import logging
-                                    logger = logging.getLogger('parser_mitsubishi')
-                                    if logger.handlers:
-                                        for handler in logger.handlers:
-                                            if hasattr(handler, 'baseFilename'):
-                                                st.info(f"詳細ログ: {handler.baseFilename}")
-                            else:
-                                st.warning(f"{filename} は未対応のExcelフォーマットです")
-                        except Exception as e:
-                            st.error(f"{filename} の読み込みに失敗しました: {e}")
+                if new_files:
+                    st.info(f"新しいファイル {len(new_files)} 件を解析します")
                     
-                    elif filename.lower().endswith(".pdf"):
-                        # PDF画像の抽出と表示
-                        if show_pdf_images:
-                            pdf_images = extract_pdf_images(content)
-                            if pdf_images:
-                                display_pdf_images(pdf_images, filename)
+                    for file in new_files:
+                        filename = file.name
+                        content = file.read()
+
+                        if filename.lower().endswith((".txt", ".csv")):
+                            filetype, detected_enc, debug_log = detect_csv_type(content)
+                            debug_details.append(f"【{filename}】\n" + "\n".join(debug_log))
+                            file_like = io.BytesIO(content)
+                            if filetype == 'infomart':
+                                records += parse_infomart(file_like, filename)
+                            elif filetype == 'iporter':
+                                records += parse_iporter(file_like, filename)
+                            else:
+                                st.warning(f"{filename} は未対応のフォーマットです")
+
+                        elif filename.lower().endswith(".xlsx"):
+                            try:
+                                df_excel = pd.read_excel(io.BytesIO(content), sheet_name=0, header=None)
+                                if df_excel.shape[0] > 5 and str(df_excel.iloc[4, 1]).strip() == "伝票番号":
+                                    file_like = io.BytesIO(content)
+                                    try:
+                                        mitsubishi_records = parse_mitsubishi(file_like, filename)
+                                        records += mitsubishi_records
+                                        st.success(f"{filename} の解析が完了しました")
+                                    except Exception as parse_error:
+                                        st.error(f"{filename} の解析に失敗しました: {parse_error}")
+                                        # ログから詳細情報を取得
+                                        import logging
+                                        logger = logging.getLogger('parser_mitsubishi')
+                                        if logger.handlers:
+                                            for handler in logger.handlers:
+                                                if hasattr(handler, 'baseFilename'):
+                                                    st.info(f"詳細ログ: {handler.baseFilename}")
+                                else:
+                                    st.warning(f"{filename} は未対応のExcelフォーマットです")
+                            except Exception as e:
+                                st.error(f"{filename} の読み込みに失敗しました: {e}")
                         
-                        # PDF解析の実行
-                        try:
-                            with st.spinner(f"{filename} を解析中..."):
-                                # APIキーの事前確認
-                                try:
-                                    from config import get_openai_api_key
-                                    api_key = get_openai_api_key()
-                                    if not api_key:
-                                        st.error("OpenAI APIキーが設定されていません")
+                        elif filename.lower().endswith(".pdf"):
+                            # PDF画像の抽出と表示
+                            if show_pdf_images:
+                                pdf_images = extract_pdf_images(content)
+                                if pdf_images:
+                                    display_pdf_images(pdf_images, filename)
+                            
+                            # PDF解析の実行
+                            try:
+                                with st.spinner(f"{filename} を解析中..."):
+                                    # APIキーの事前確認
+                                    try:
+                                        from config import get_openai_api_key
+                                        api_key = get_openai_api_key()
+                                        if not api_key:
+                                            st.error("OpenAI APIキーが設定されていません")
+                                            continue
+                                    except Exception as api_error:
+                                        st.error(f"APIキー取得エラー: {api_error}")
                                         continue
-                                except Exception as api_error:
-                                    st.error(f"APIキー取得エラー: {api_error}")
-                                    continue
-                                
-                                pdf_records = parse_pdf_handwritten(content, filename)
-                                records += pdf_records
-                                # 商品情報の抽出状況を確認
-                                if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
-                                    st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
-                            st.success(f"{filename} の解析が完了しました")
-                        except Exception as e:
-                            st.error(f"{filename} の解析に失敗しました: {e}")
-                            st.error(f"詳細エラー: {str(e)}")
-                            # 本番環境での追加情報
-                            if is_production():
-                                st.info("本番環境でのトラブルシューティング:")
-                                st.info("1. Render Secrets FilesでOPENAI_API_KEYが正しく設定されているか確認")
-                                st.info("2. アプリケーションを再デプロイして環境変数を反映")
-                                st.info("3. Renderのログで詳細なエラー情報を確認")
-            else:
-                st.info("📝 すべてのファイルが既に解析済みです。新しいファイルをアップロードしてください。")
-        
-        # 解析済みデータをセッションに保存
-        st.session_state.parsed_records = records
-    else:
-        # 編集済みの場合は既存のデータを表示
-        st.info("📝 データが編集されています。ファイルを再アップロードすると再解析されます。")
-        if st.button("🔄 データを再読み込み", key="reload_data"):
-            st.session_state.data_edited = False
-            st.rerun()
-        # 編集済みの場合も既存のデータを使用
-        records = st.session_state.parsed_records.copy()
-
-    # レコードが存在する場合（空でも表示）
-    if records:        
-        df = pd.DataFrame(records)
-        
-        # 空行除外の条件を緩和（商品名または備考に値がある場合は表示）
-        if not df.empty:
-            # 商品名または備考に値がある行のみを保持
-            df = df[df['product_name'].notna() | df['remark'].notna()]
-        
-        if not df.empty:
-            columns = [
-                "order_id", "order_date", "delivery_date", "partner_name",
-                "product_code", "product_name", "quantity", "unit", "unit_price", "amount", "remark", "data_source"
-            ]
-            df = df.reindex(columns=columns)
-            df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
-
-            edited_df = st.data_editor(
-                df,
-                use_container_width=True,
-                num_rows="dynamic",
-                key="editor",
-                hide_index=True,
-                on_change=lambda: setattr(st.session_state, 'data_edited', True)
-            )
+                                    
+                                    pdf_records = parse_pdf_handwritten(content, filename)
+                                    records += pdf_records
+                                    # 商品情報の抽出状況を確認
+                                    if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
+                                        st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
+                                st.success(f"{filename} の解析が完了しました")
+                            except Exception as e:
+                                st.error(f"{filename} の解析に失敗しました: {e}")
+                                st.error(f"詳細エラー: {str(e)}")
+                                # 本番環境での追加情報
+                                if is_production():
+                                    st.info("本番環境でのトラブルシューティング:")
+                                    st.info("1. Render Secrets FilesでOPENAI_API_KEYが正しく設定されているか確認")
+                                    st.info("2. アプリケーションを再デプロイして環境変数を反映")
+                                    st.info("3. Renderのログで詳細なエラー情報を確認")
+                else:
+                    st.info("📝 すべてのファイルが既に解析済みです。新しいファイルをアップロードしてください。")
+            
+            # 解析済みデータをセッションに保存
+            st.session_state.parsed_records = records
         else:
-            st.warning("表示可能なデータがありません。商品情報の抽出に失敗した可能性があります。")
+            # 編集済みの場合は既存のデータを表示
+            st.info("📝 データが編集されています。ファイルを再アップロードすると再解析されます。")
+            if st.button("🔄 データを再読み込み", key="reload_data"):
+                st.session_state.data_edited = False
+                st.rerun()
+            # 編集済みの場合も既存のデータを使用
+            records = st.session_state.parsed_records.copy()
 
-        for col in ["発注日", "納品日"]:
-            edited_df[col] = pd.to_datetime(edited_df[col], errors="coerce").dt.strftime("%Y/%m/%d")
+    with tab2:
+        # レコードが存在する場合（空でも表示）
+        if records:        
+            df = pd.DataFrame(records)
+            
+            # 空行除外の条件を緩和（商品名または備考に値がある場合は表示）
+            if not df.empty:
+                # 商品名または備考に値がある行のみを保持
+                df = df[df['product_name'].notna() | df['remark'].notna()]
+            
+            if not df.empty:
+                columns = [
+                    "order_id", "order_date", "delivery_date", "partner_name",
+                    "product_code", "product_name", "quantity", "unit", "unit_price", "amount", "remark", "data_source"
+                ]
+                df = df.reindex(columns=columns)
+                df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
 
-        edited_df["数量"] = pd.to_numeric(edited_df["数量"], errors="coerce").fillna(0)
+                edited_df = st.data_editor(
+                    df,
+                    use_container_width=True,
+                    num_rows="dynamic",
+                    key="editor",
+                    hide_index=True,
+                    on_change=lambda: setattr(st.session_state, 'data_edited', True)
+                )
+            else:
+                st.warning("表示可能なデータがありません。商品情報の抽出に失敗した可能性があります。")
 
-        df_sorted = edited_df.sort_values(
-            by=["商品名", "納品日", "発注日"], na_position="last"
-        )
+            for col in ["発注日", "納品日"]:
+                edited_df[col] = pd.to_datetime(edited_df[col], errors="coerce").dt.strftime("%Y/%m/%d")
 
-        df_agg = (
-            df_sorted
-            .groupby(["商品名", "備考", "単位"], dropna=False, as_index=False)
-            .agg({"数量": "sum"})
-        )
-        df_agg = df_agg[["商品名", "備考", "数量", "単位"]]
-        df_agg = df_agg.sort_values(by=["商品名"])
-        output = io.BytesIO()
-        jst = pytz.timezone("Asia/Tokyo")
-        now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
+            edited_df["数量"] = pd.to_numeric(edited_df["数量"], errors="coerce").fillna(0)
 
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            workbook = writer.book
-            header_format = workbook.add_format({'bold': False, 'border': 0})
-
-            # ▼ 注文一覧シート
-            sheet1 = "注文一覧"
-            edited_df.to_excel(writer, index=False, sheet_name=sheet1, startrow=1, header=False)
-            worksheet1 = writer.sheets[sheet1]
-            for col_num, value in enumerate(edited_df.columns.values):
-                worksheet1.write(0, col_num, value, header_format)
-
-            # ▼ 注文一覧(層別結果)シート
-            sheet2 = "注文一覧(層別結果)"
-            df_sorted.to_excel(writer, index=False, sheet_name=sheet2, startrow=1, header=False)
-            worksheet2 = writer.sheets[sheet2]
-            for col_num, value in enumerate(df_sorted.columns.values):
-                worksheet2.write(0, col_num, value, header_format)
-
-            # ▼ 集計結果シート
-            sheet3 = "集計結果"
-            df_agg.to_excel(writer, index=False, sheet_name=sheet3, startrow=1, header=False)
-            worksheet3 = writer.sheets[sheet3]
-            for col_num, value in enumerate(df_agg.columns.values):
-                worksheet3.write(0, col_num, value, header_format)
-
-        output.seek(0)
-        
-        # ダウンロードボタンと削除ボタンを横に並べる
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            st.download_button(
-                label="Excelをダウンロード",
-                data=output,
-                file_name=f"{now_str}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            df_sorted = edited_df.sort_values(
+                by=["商品名", "納品日", "発注日"], na_position="last"
             )
+
+            df_agg = (
+                df_sorted
+                .groupby(["商品名", "備考", "単位"], dropna=False, as_index=False)
+                .agg({"数量": "sum"})
+            )
+            df_agg = df_agg[["商品名", "備考", "数量", "単位"]]
+            df_agg = df_agg.sort_values(by=["商品名"])
+            output = io.BytesIO()
+            jst = pytz.timezone("Asia/Tokyo")
+            now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
+
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                workbook = writer.book
+                header_format = workbook.add_format({'bold': False, 'border': 0})
+
+                # ▼ 注文一覧シート
+                sheet1 = "注文一覧"
+                edited_df.to_excel(writer, index=False, sheet_name=sheet1, startrow=1, header=False)
+                worksheet1 = writer.sheets[sheet1]
+                for col_num, value in enumerate(edited_df.columns.values):
+                    worksheet1.write(0, col_num, value, header_format)
+
+                # ▼ 注文一覧(層別結果)シート
+                sheet2 = "注文一覧(層別結果)"
+                df_sorted.to_excel(writer, index=False, sheet_name=sheet2, startrow=1, header=False)
+                worksheet2 = writer.sheets[sheet2]
+                for col_num, value in enumerate(df_sorted.columns.values):
+                    worksheet2.write(0, col_num, value, header_format)
+
+                # ▼ 集計結果シート
+                sheet3 = "集計結果"
+                df_agg.to_excel(writer, index=False, sheet_name=sheet3, startrow=1, header=False)
+                worksheet3 = writer.sheets[sheet3]
+                for col_num, value in enumerate(df_agg.columns.values):
+                    worksheet3.write(0, col_num, value, header_format)
+
+            output.seek(0)
+            
+            # データベースに保存
+            try:
+                save_order_lines(edited_df, now_str, note="画面から出力")
+                st.success(f"データベースに保存しました（バッチID: {now_str}）")
+            except Exception as e:
+                st.error(f"DB保存に失敗しました: {e}")
+            
+            # ダウンロードボタンと削除ボタンを横に並べる
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.download_button(
+                    label="Excelをダウンロード",
+                    data=output,
+                    file_name=f"{now_str}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            
+            with col2:
+                if processed_line_orders:  # 処理済みデータがある場合のみ削除ボタンを表示
+                    if st.button("🗑️ 処理済みデータ削除", type="secondary"):
+                        success, message = delete_processed_line_orders()
+                        if success:
+                            st.success(message)
+                            # セッションの解析済みデータもクリア
+                            st.session_state.parsed_records = []
+                            st.rerun()
+                        else:
+                            st.error(message)
+        else:
+            st.info("注文ファイルをアップロードしてください")
+    
+    with tab3:
+        st.subheader("🕘 保存済みバッチ履歴")
         
+        # バッチ統計情報
+        stats = get_batch_stats()
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("総バッチ数", stats["total_batches"])
         with col2:
-            if processed_line_orders:  # 処理済みデータがある場合のみ削除ボタンを表示
-                if st.button("🗑️ 処理済みデータ削除", type="secondary"):
-                    success, message = delete_processed_line_orders()
-                    if success:
-                        st.success(message)
-                        # セッションの解析済みデータもクリア
-                        st.session_state.parsed_records = []
-                        st.rerun()
-                    else:
-                        st.error(message)
-    else:
-        st.info("注文ファイルをアップロードしてください")
+            st.metric("総注文行数", stats["total_lines"])
+        with col3:
+            latest = stats["latest_batch"]
+            if latest:
+                st.metric("最新バッチ", latest[0])
+            else:
+                st.metric("最新バッチ", "なし")
+        
+        # バッチ一覧
+        batches = list_batches()
+        if not batches:
+            st.info("保存済みのバッチはまだありません。")
+        else:
+            labels = [f"{b[0]} / {b[1]} {b[2]}" for b in batches]
+            selected = st.selectbox("バッチを選択", labels, index=0)
+            sel_id = batches[labels.index(selected)][0]
+            df_hist = load_batch(sel_id)
+            st.dataframe(df_hist, use_container_width=True, hide_index=True)
+
+            # このバッチでExcel再生成
+            if st.button("このバッチでExcelを作成"):
+                # 列名を英語に戻す
+                df_hist_eng = df_hist.copy()
+                df_hist_eng.columns = ["order_id", "order_date", "delivery_date", "partner_name",
+                                     "product_code", "product_name", "quantity", "unit", 
+                                     "unit_price", "amount", "remark", "data_source"]
+                
+                # Excel生成
+                output_hist = io.BytesIO()
+                with pd.ExcelWriter(output_hist, engine='xlsxwriter') as writer:
+                    workbook = writer.book
+                    header_format = workbook.add_format({'bold': False, 'border': 0})
+                    
+                    # 注文一覧シート
+                    df_hist_eng.to_excel(writer, index=False, sheet_name="注文一覧", startrow=1, header=False)
+                    worksheet = writer.sheets["注文一覧"]
+                    for col_num, value in enumerate(df_hist_eng.columns.values):
+                        worksheet.write(0, col_num, value, header_format)
+                
+                output_hist.seek(0)
+                
+                st.download_button(
+                    label="履歴Excelをダウンロード",
+                    data=output_hist,
+                    file_name=f"履歴_{sel_id}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
 
 elif st.session_state.get("authentication_status") is False:
     st.error("ユーザー名またはパスワードが正しくありません。")

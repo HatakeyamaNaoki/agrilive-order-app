@@ -1,0 +1,46 @@
+[
+    {
+        "line_account": "n.hatakeyama@agrilive.co.jp",
+        "sender_name": "不明",
+        "order_date": "2025/09/04",
+        "timestamp": "20250904_195130",
+        "message_text": "",
+        "image_filename": "line_order_20250904_195130.png",
+        "processed": true,
+        "parsed_data": {
+            "order_id": "",
+            "order_date": "2025/09/04",
+            "delivery_date": "2025/09/05",
+            "partner_name": "リソースクリエイション畠山萌乃",
+            "items": [
+                {
+                    "product_name": "玉レタス",
+                    "quantity": "1",
+                    "unit": "個",
+                    "product_code": "",
+                    "unit_price": "",
+                    "amount": "",
+                    "remark": "銀座着"
+                },
+                {
+                    "product_name": "りんご",
+                    "quantity": "10",
+                    "unit": "玉",
+                    "product_code": "",
+                    "unit_price": "",
+                    "amount": "",
+                    "remark": "銀座着"
+                },
+                {
+                    "product_name": "ジャガイモ",
+                    "quantity": "20",
+                    "unit": "個",
+                    "product_code": "",
+                    "unit_price": "",
+                    "amount": "",
+                    "remark": "小さい, 銀座着"
+                }
+            ]
+        }
+    }
+]

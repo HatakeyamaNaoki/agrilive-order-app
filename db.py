@@ -1,0 +1,134 @@
+from pathlib import Path
+import sqlite3
+import hashlib
+import datetime
+from contextlib import contextmanager
+import pandas as pd
+
+# データベースファイルのパス設定
+DB_PATH = Path(__file__).parent / "data" / "app.db"
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+@contextmanager
+def _conn():
+    """データベース接続のコンテキストマネージャー"""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+def init_db():
+    """データベースの初期化（テーブル作成）"""
+    with _conn() as c:
+        # 注文明細テーブル
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS order_lines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id TEXT NOT NULL,
+            order_id TEXT, 
+            order_date TEXT, 
+            delivery_date TEXT, 
+            partner_name TEXT,
+            product_code TEXT, 
+            product_name TEXT, 
+            quantity REAL, 
+            unit TEXT,
+            unit_price REAL, 
+            amount REAL, 
+            remark TEXT, 
+            data_source TEXT,
+            row_hash TEXT UNIQUE,
+            created_at TEXT NOT NULL
+        );
+        """)
+        
+        # バッチ管理テーブル
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS batches (
+            batch_id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            note TEXT
+        );
+        """)
+
+def _calc_hash(row: dict) -> str:
+    """行データのハッシュ値を計算（重複防止用）"""
+    keys = ["order_id", "order_date", "delivery_date", "partner_name",
+            "product_code", "product_name", "quantity", "unit",
+            "unit_price", "amount", "remark", "data_source", "batch_id"]
+    s = "|".join(str(row.get(k, "")) for k in keys)
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+def save_order_lines(df, batch_id: str, note: str = None):
+    """注文明細をデータベースに保存"""
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    init_db()
+    
+    with _conn() as c:
+        # バッチ登録（なければ）
+        c.execute("INSERT OR IGNORE INTO batches(batch_id, created_at, note) VALUES(?, ?, ?)",
+                  (batch_id, now, note))
+        
+        # 行をINSERT（重複はrow_hashのUNIQUEで無視）
+        cols = ["order_id", "order_date", "delivery_date", "partner_name",
+                "product_code", "product_name", "quantity", "unit",
+                "unit_price", "amount", "remark", "data_source"]
+        
+        for _, r in df.iterrows():
+            row = {k: (r.get(k) if k in df.columns else None) for k in cols}
+            row["batch_id"] = batch_id
+            h = _calc_hash(row)
+            
+            c.execute("""
+            INSERT OR IGNORE INTO order_lines
+            (batch_id, order_id, order_date, delivery_date, partner_name,
+             product_code, product_name, quantity, unit, unit_price, amount, remark, data_source,
+             row_hash, created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (batch_id, row["order_id"], row["order_date"], row["delivery_date"], row["partner_name"],
+                  row["product_code"], row["product_name"], row["quantity"], row["unit"],
+                  row["unit_price"], row["amount"], row["remark"], row["data_source"],
+                  h, now))
+
+def list_batches():
+    """保存済みバッチの一覧を取得"""
+    init_db()
+    with _conn() as c:
+        cur = c.execute("SELECT batch_id, created_at, COALESCE(note,'') FROM batches ORDER BY created_at DESC")
+        return cur.fetchall()
+
+def load_batch(batch_id: str):
+    """指定されたバッチIDのデータを取得"""
+    init_db()
+    with _conn() as c:
+        cur = c.execute("""
+        SELECT order_id as '伝票番号', order_date as '発注日', delivery_date as '納品日', partner_name as '取引先名',
+               product_code as '商品コード', product_name as '商品名', quantity as '数量', unit as '単位',
+               unit_price as '単価', amount as '金額', remark as '備考', data_source as 'データ元'
+        FROM order_lines
+        WHERE batch_id = ?
+        """, (batch_id,))
+        rows = cur.fetchall()
+        cols = [d[0] for d in cur.description]
+    return pd.DataFrame(rows, columns=cols)
+
+def get_batch_stats():
+    """バッチ統計情報を取得"""
+    init_db()
+    with _conn() as c:
+        # 総バッチ数
+        total_batches = c.execute("SELECT COUNT(*) FROM batches").fetchone()[0]
+        
+        # 総注文行数
+        total_lines = c.execute("SELECT COUNT(*) FROM order_lines").fetchone()[0]
+        
+        # 最新バッチ
+        latest_batch = c.execute("SELECT batch_id, created_at FROM batches ORDER BY created_at DESC LIMIT 1").fetchone()
+        
+        return {
+            "total_batches": total_batches,
+            "total_lines": total_lines,
+            "latest_batch": latest_batch
+        }
