@@ -1179,7 +1179,7 @@ if st.session_state.get("authentication_status"):
                                                     now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
                                                     batch_id = f"LINE_{order['timestamp']}_{now_str}"
                                                     
-                                                    # データベースに保存
+                                                    # データベースに保存（正規化で日本語列名を処理）
                                                     save_order_lines(df_line, batch_id, note=f"LINE注文一括解析_{order['sender_name']}")
                                             except Exception as db_error:
                                                 st.error(f"データベース保存エラー ({order['sender_name']}): {db_error}")
@@ -1280,7 +1280,7 @@ if st.session_state.get("authentication_status"):
                                                 now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
                                                 batch_id = f"LINE_{order['timestamp']}_{now_str}"
                                                 
-                                                # データベースに保存
+                                                # データベースに保存（正規化で日本語列名を処理）
                                                 save_order_lines(df_line, batch_id, note=f"LINE注文解析_{order['sender_name']}")
                                                 st.success(f"データベースに保存しました（バッチID: {batch_id}）")
                                         except Exception as db_error:
@@ -1566,7 +1566,7 @@ if st.session_state.get("authentication_status"):
                     now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
                     batch_id = f"FILE_{now_str}"
                     
-                    # データベースに保存
+                    # データベースに保存（正規化で日本語列名を処理）
                     save_order_lines(df_upload, batch_id, note="ファイルアップロード解析")
                     st.success(f"データベースに保存しました（バッチID: {batch_id}）")
             except Exception as db_error:
@@ -1647,6 +1647,13 @@ if st.session_state.get("authentication_status"):
                     worksheet3.write(0, col_num, value, header_format)
 
             output.seek(0)
+            
+            # 編集タブでExcel出力時にDB保存
+            try:
+                save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
+                st.success(f"DBに保存しました（バッチID: {now_str}）")
+            except Exception as e:
+                st.error(f"DB保存に失敗しました: {e}")
             
             # ダウンロードボタンと削除ボタンを横に並べる
             col1, col2 = st.columns([3, 1])

@@ -9,6 +9,47 @@ import pandas as pd
 DB_PATH = Path(__file__).parent / "data" / "app.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+# 日本語列名→英語列名のマッピング
+J2E = {
+    "伝票番号": "order_id",
+    "発注日": "order_date",
+    "納品日": "delivery_date",
+    "取引先名": "partner_name",
+    "商品コード": "product_code",
+    "商品名": "product_name",
+    "数量": "quantity",
+    "単位": "unit",
+    "単価": "unit_price",
+    "金額": "amount",
+    "備考": "remark",
+    "データ元": "data_source",
+}
+
+def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
+    """日本語/英語いずれの列名でも受け取り、英語スキーマに正規化"""
+    if not isinstance(df, pd.DataFrame):
+        raise ValueError("save_order_lines() には DataFrame を渡してください")
+
+    # 日本語→英語に寄せる（存在するものだけ）
+    need_rename = any(col in J2E for col in df.columns)
+    df2 = df.rename(columns={k: v for k, v in J2E.items() if k in df.columns}) if need_rename else df.copy()
+
+    # 必須列を欠けなく用意
+    cols = ["order_id","order_date","delivery_date","partner_name",
+            "product_code","product_name","quantity","unit",
+            "unit_price","amount","remark","data_source"]
+    for c in cols:
+        if c not in df2.columns:
+            df2[c] = None
+
+    # 型のゆるやかな整形（失敗はNaN→後でNoneになる）
+    for num in ["quantity","unit_price","amount"]:
+        df2[num] = pd.to_numeric(df2[num], errors="coerce")
+    for dcol in ["order_date","delivery_date"]:
+        df2[dcol] = pd.to_datetime(df2[dcol], errors="coerce").dt.strftime("%Y/%m/%d")
+
+    return df2
+
 @contextmanager
 def _conn():
     """データベース接続のコンテキストマネージャー"""
@@ -65,6 +106,7 @@ def save_order_lines(df, batch_id: str, note: str = None):
     """注文明細をデータベースに保存"""
     now = datetime.datetime.now().isoformat(timespec="seconds")
     init_db()
+    df = _normalize_df(df)  # ★追加：英語スキーマに統一
     
     with _conn() as c:
         # バッチ登録（なければ）
