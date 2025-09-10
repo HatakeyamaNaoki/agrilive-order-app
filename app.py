@@ -1168,23 +1168,11 @@ if st.session_state.get("authentication_status"):
                                                         "data_source": f"LINE注文_{order['timestamp']}"
                                                     }
                                                     records.append(record)
-                                                    # 新規解析が発生したことをフラグで記録
-                                                    st.session_state.new_parsing_occurred = True
                                                 
-                                                # 標準形式のDataFrameを作成
-                                                df_line = pd.DataFrame(records)
-                                                if not df_line.empty:
-                                                    # 列名を日本語に変換
-                                                    df_line.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
-                                                    # バッチIDを生成
-                                                    jst = pytz.timezone("Asia/Tokyo")
-                                                    now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
-                                                    batch_id = f"LINE_{order['timestamp']}_{now_str}"
-                                                    
-                                                    # データベースに保存（正規化で日本語列名を処理）
-                                                    save_order_lines(df_line, batch_id, note=f"LINE注文一括解析_{order['sender_name']}")
-                                            except Exception as db_error:
-                                                st.error(f"データベース保存エラー ({order['sender_name']}): {db_error}")
+                                                # LINE解析結果を画面表示のみ（DB保存はExcelダウンロード時）
+                                                st.success(f"LINE注文解析完了: {order['sender_name']}")
+                                            except Exception as e:
+                                                st.error(f"LINE解析エラー ({order['sender_name']}): {e}")
                                             
                                             processed_count += 1
                                         else:
@@ -1264,8 +1252,6 @@ if st.session_state.get("authentication_status"):
                                                 "data_source": f"LINE注文_{order['timestamp']}"
                                             }
                                             records.append(record)
-                                            # 新規解析が発生したことをフラグで記録
-                                            st.session_state.new_parsing_occurred = True
                                         
                                         # 解析結果を保存
                                         success, message = save_parsed_line_order_data(order['timestamp'], parsed_data)
@@ -1284,11 +1270,10 @@ if st.session_state.get("authentication_status"):
                                                 now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
                                                 batch_id = f"LINE_{order['timestamp']}_{now_str}"
                                                 
-                                                # データベースに保存（正規化で日本語列名を処理）
-                                                save_order_lines(df_line, batch_id, note=f"LINE注文解析_{order['sender_name']}")
-                                                st.success(f"データベースに保存しました（バッチID: {batch_id}）")
-                                        except Exception as db_error:
-                                            st.error(f"データベース保存エラー: {db_error}")
+                                                # LINE解析結果を画面表示のみ（DB保存はExcelダウンロード時）
+                                                st.success(f"LINE注文解析完了: {order['sender_name']}")
+                                        except Exception as e:
+                                            st.error(f"LINE解析エラー: {e}")
                                         
                                         st.success("LINE注文の解析が完了しました！")
                                         st.rerun()
@@ -1439,8 +1424,6 @@ if st.session_state.get("authentication_status"):
                                 "data_source": line_source
                             }
                             records.append(record)
-                            # 新規解析が発生したことをフラグで記録
-                            st.session_state.new_parsing_occurred = True
                     else:
                         # 解析結果がない場合はダミーデータを追加
                         record = {
@@ -1458,8 +1441,6 @@ if st.session_state.get("authentication_status"):
                             "data_source": line_source
                         }
                         records.append(record)
-                        # 新規解析が発生したことをフラグで記録
-                        st.session_state.new_parsing_occurred = True
             
             if uploaded_files:
                 # 新しいファイルのみを処理
@@ -1552,8 +1533,6 @@ if st.session_state.get("authentication_status"):
             
             # 解析済みデータをセッションに保存
             st.session_state.parsed_records = records
-            # 新規解析が発生したことをフラグで記録
-            st.session_state.new_parsing_occurred = True
         else:
             # 編集済みの場合は既存のデータを表示
             st.info("📝 データが編集されています。ファイルを再アップロードすると再解析されます。")
@@ -1563,34 +1542,8 @@ if st.session_state.get("authentication_status"):
             # 編集済みの場合も既存のデータを使用
             records = st.session_state.parsed_records.copy()
         
-        # 新規解析が発生した時だけデータベースに保存（削除後のrerunでは保存しない）
-        did_parse_now = False
-        
-        # セッション状態で新規解析フラグを管理
-        if 'new_parsing_occurred' not in st.session_state:
-            st.session_state.new_parsing_occurred = False
-        
-        # ファイルアップロードやLINE解析で新規データが追加された場合
-        if records and not st.session_state.data_edited and st.session_state.new_parsing_occurred:
-            try:
-                # 標準形式のDataFrameを作成
-                df_upload = pd.DataFrame(records)
-                if not df_upload.empty:
-                    # 列名を日本語に変換
-                    df_upload.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
-                    # バッチIDを生成
-                    jst = pytz.timezone("Asia/Tokyo")
-                    now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
-                    batch_id = f"FILE_{now_str}"
-                    
-                    # データベースに保存（正規化で日本語列名を処理）
-                    save_order_lines(df_upload, batch_id, note="ファイルアップロード解析")
-                    st.success(f"データベースに保存しました（バッチID: {batch_id}）")
-                    
-                    # 保存後はフラグをリセット
-                    st.session_state.new_parsing_occurred = False
-            except Exception as db_error:
-                st.error(f"データベース保存エラー: {db_error}")
+        # ファイルアップロード時は自動DB保存しない（Excelダウンロード時に保存）
+        # データは画面表示のみで、DB保存は明示的な操作（Excelダウンロード）時のみ実行
 
     with tab2:
         # レコードが存在する場合（空でも表示）
@@ -1675,13 +1628,16 @@ if st.session_state.get("authentication_status"):
             col1, col2 = st.columns([3, 1])
             
             with col1:
-                if st.download_button(
+                downloaded = st.download_button(
                     label="Excelをダウンロード",
                     data=output,
                     file_name=f"{now_str}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                ):
-                    # Excelダウンロード時にDB保存
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_excel_btn"
+                )
+                
+                # ダウンロードをトリガに保存
+                if downloaded:
                     try:
                         save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
                         st.success(f"DBに保存しました（バッチID: {now_str}）")
@@ -1787,8 +1743,7 @@ if st.session_state.get("authentication_status"):
                                 
                                 if deleted_count > 0:
                                     st.success(f"✅ {deleted_count}行を削除しました")
-                                    # 新規解析フラグをリセットしてから画面を更新
-                                    st.session_state.new_parsing_occurred = False
+                                    # 画面を更新
                                     st.rerun()
                                 else:
                                     st.warning("削除された行がありません")
@@ -1834,8 +1789,7 @@ if st.session_state.get("authentication_status"):
                                     
                                     if deleted_rows > 0:
                                         st.success(f"✅ バッチ '{selected_batch}' を削除しました（{deleted_rows}行）")
-                                        # 新規解析フラグをリセットしてから画面を更新
-                                        st.session_state.new_parsing_occurred = False
+                                        # 画面を更新
                                         st.rerun()
                                     else:
                                         st.warning("削除された行がありません")
