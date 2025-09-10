@@ -823,7 +823,9 @@ if st.session_state.get("authentication_status"):
     
     # データベース初期化
     init_db()
-    st.sidebar.info(f"DB: {DB_PATH}")
+    # DB情報は管理者のみ表示
+    if is_admin(username):
+        st.sidebar.info(f"DB: {DB_PATH}")
     
     # データ更新ボタンをサイドバーに移動
     st.sidebar.markdown("---")
@@ -993,13 +995,14 @@ if st.session_state.get("authentication_status"):
             except:
                 pass
 
-    # 環境情報表示（デバッグ用）
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🔍 環境情報（デバッグ）")
-    st.sidebar.info(f"RENDER: {os.getenv('RENDER')}")
-    st.sidebar.info(f"ENV: {os.getenv('ENV')}")
-    st.sidebar.info(f"is_production(): {is_production()}")
-    st.sidebar.info(f"OpenAI API Key: {'設定済み' if get_openai_api_key() else '未設定'}")
+    # 環境情報表示（管理者のみ）
+    if is_admin(username):
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🔍 環境情報（デバッグ）")
+        st.sidebar.info(f"RENDER: {os.getenv('RENDER')}")
+        st.sidebar.info(f"ENV: {os.getenv('ENV')}")
+        st.sidebar.info(f"is_production(): {is_production()}")
+        st.sidebar.info(f"OpenAI API Key: {'設定済み' if get_openai_api_key() else '未設定'}")
 
     # OpenAI APIキー設定（開発環境のみ）
     if not is_production():
