@@ -1641,6 +1641,27 @@ if st.session_state.get("authentication_status"):
                     try:
                         save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
                         st.success(f"DBに保存しました（バッチID: {now_str}）")
+                        
+                        # データをクリア
+                        st.session_state.parsed_records = []
+                        st.session_state.data_edited = False
+                        
+                        # LINE注文データもクリア
+                        if 'processed_line_orders' in st.session_state:
+                            st.session_state.processed_line_orders = []
+                        
+                        # LINE注文データのファイルも削除
+                        try:
+                            success, message = delete_processed_line_orders()
+                            if success:
+                                st.info(f"LINE注文データ: {message}")
+                            else:
+                                st.warning(f"LINE注文データ削除エラー: {message}")
+                        except Exception as e:
+                            st.warning(f"LINE注文データ削除エラー: {e}")
+                        
+                        st.success("✅ データをクリアしました。新しいファイルをアップロードしてください。")
+                        st.rerun()
                     except Exception as e:
                         st.error(f"DB保存に失敗しました: {e}")
             
