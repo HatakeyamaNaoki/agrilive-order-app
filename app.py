@@ -1756,9 +1756,10 @@ if st.session_state.get("authentication_status"):
                         if not row_data.empty:
                             product_name = str(row_data['商品名'].iloc[0]) if pd.notna(row_data['商品名'].iloc[0]) else "商品名なし"
                             partner_name = str(row_data['取引先名'].iloc[0]) if pd.notna(row_data['取引先名'].iloc[0]) else "取引先名なし"
+                            batch_id = str(row_data['バッチID'].iloc[0]) if pd.notna(row_data['バッチID'].iloc[0]) else "バッチIDなし"
                             # 連番を取得（IDの順序で連番を付与）
                             row_index = df_all[df_all['id'] == row_id].index[0] + 1
-                            return f"バッジID_{row_index}: {product_name} - {partner_name}"
+                            return f"{batch_id}_{row_index}: {product_name} - {partner_name}"
                         else:
                             return f"ID {row_id}: データなし"
                     except Exception:
@@ -1822,7 +1823,7 @@ if st.session_state.get("authentication_status"):
                     row_count = len(df_all[df_all['バッチID'] == batch_id])
                     # バッチの順序で連番を付与
                     batch_index = list(unique_batches).index(batch_id) + 1
-                    return f"バッジID_{batch_index}: {batch_id}（{row_count}行）"
+                    return f"{batch_id}_{batch_index}（{row_count}行）"
                 
                 selected_batch = st.selectbox(
                     "削除するバッチを選択",
