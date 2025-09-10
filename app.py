@@ -1642,6 +1642,15 @@ if st.session_state.get("authentication_status"):
                         save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
                         st.success(f"DBに保存しました（バッチID: {now_str}）")
                         
+                        # データクリアフラグを設定（st.rerun()は使わない）
+                        st.session_state.data_clear_requested = True
+                        
+                    except Exception as e:
+                        st.error(f"DB保存に失敗しました: {e}")
+                
+                # データクリアフラグが設定されている場合の処理
+                if st.session_state.get('data_clear_requested', False):
+                    try:
                         # データをクリア
                         st.session_state.parsed_records = []
                         st.session_state.data_edited = False
@@ -1661,9 +1670,13 @@ if st.session_state.get("authentication_status"):
                             st.warning(f"LINE注文データ削除エラー: {e}")
                         
                         st.success("✅ データをクリアしました。新しいファイルをアップロードしてください。")
-                        st.rerun()
+                        
+                        # フラグをリセット
+                        st.session_state.data_clear_requested = False
+                        
                     except Exception as e:
-                        st.error(f"DB保存に失敗しました: {e}")
+                        st.error(f"データクリアエラー: {e}")
+                        st.session_state.data_clear_requested = False
             
             with col2:
                 if processed_line_orders:  # 処理済みデータがある場合のみ削除ボタンを表示
