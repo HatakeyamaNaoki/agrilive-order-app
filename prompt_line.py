@@ -33,7 +33,7 @@ def get_line_order_prompt():
 - **order_id**: LINE注文では通常空文字
 - **order_date**: 発注日（受信日時を基準とする）
 - **delivery_date**: 納品希望日（相対表現は受信日時を基準に計算）
-- **partner_name**: LINE送信者名
+- **partner_name**: LINE送信者名（＠が先頭についている名前は自分の名前であり、取引先ではない）
 
 ### 2. 商品情報の抽出
 - **商品名**: 商品の正式名称を抽出
