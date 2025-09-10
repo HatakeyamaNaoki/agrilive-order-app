@@ -1168,6 +1168,8 @@ if st.session_state.get("authentication_status"):
                                                         "data_source": f"LINE注文_{order['timestamp']}"
                                                     }
                                                     records.append(record)
+                                                    # 新規解析が発生したことをフラグで記録
+                                                    st.session_state.new_parsing_occurred = True
                                                 
                                                 # 標準形式のDataFrameを作成
                                                 df_line = pd.DataFrame(records)
@@ -1262,6 +1264,8 @@ if st.session_state.get("authentication_status"):
                                                 "data_source": f"LINE注文_{order['timestamp']}"
                                             }
                                             records.append(record)
+                                            # 新規解析が発生したことをフラグで記録
+                                            st.session_state.new_parsing_occurred = True
                                         
                                         # 解析結果を保存
                                         success, message = save_parsed_line_order_data(order['timestamp'], parsed_data)
@@ -1435,6 +1439,8 @@ if st.session_state.get("authentication_status"):
                                 "data_source": line_source
                             }
                             records.append(record)
+                            # 新規解析が発生したことをフラグで記録
+                            st.session_state.new_parsing_occurred = True
                     else:
                         # 解析結果がない場合はダミーデータを追加
                         record = {
@@ -1452,6 +1458,8 @@ if st.session_state.get("authentication_status"):
                             "data_source": line_source
                         }
                         records.append(record)
+                        # 新規解析が発生したことをフラグで記録
+                        st.session_state.new_parsing_occurred = True
             
             if uploaded_files:
                 # 新しいファイルのみを処理
@@ -1544,6 +1552,8 @@ if st.session_state.get("authentication_status"):
             
             # 解析済みデータをセッションに保存
             st.session_state.parsed_records = records
+            # 新規解析が発生したことをフラグで記録
+            st.session_state.new_parsing_occurred = True
         else:
             # 編集済みの場合は既存のデータを表示
             st.info("📝 データが編集されています。ファイルを再アップロードすると再解析されます。")
@@ -1553,8 +1563,15 @@ if st.session_state.get("authentication_status"):
             # 編集済みの場合も既存のデータを使用
             records = st.session_state.parsed_records.copy()
         
-        # 新しいファイルがアップロードされた場合のみデータベースに保存
-        if records and not st.session_state.data_edited:
+        # 新規解析が発生した時だけデータベースに保存（削除後のrerunでは保存しない）
+        did_parse_now = False
+        
+        # セッション状態で新規解析フラグを管理
+        if 'new_parsing_occurred' not in st.session_state:
+            st.session_state.new_parsing_occurred = False
+        
+        # ファイルアップロードやLINE解析で新規データが追加された場合
+        if records and not st.session_state.data_edited and st.session_state.new_parsing_occurred:
             try:
                 # 標準形式のDataFrameを作成
                 df_upload = pd.DataFrame(records)
@@ -1569,6 +1586,9 @@ if st.session_state.get("authentication_status"):
                     # データベースに保存（正規化で日本語列名を処理）
                     save_order_lines(df_upload, batch_id, note="ファイルアップロード解析")
                     st.success(f"データベースに保存しました（バッチID: {batch_id}）")
+                    
+                    # 保存後はフラグをリセット
+                    st.session_state.new_parsing_occurred = False
             except Exception as db_error:
                 st.error(f"データベース保存エラー: {db_error}")
 
@@ -1648,23 +1668,25 @@ if st.session_state.get("authentication_status"):
 
             output.seek(0)
             
-            # 編集タブでExcel出力時にDB保存
-            try:
-                save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
-                st.success(f"DBに保存しました（バッチID: {now_str}）")
-            except Exception as e:
-                st.error(f"DB保存に失敗しました: {e}")
+            # 編集タブでExcel出力時にDB保存（Excelダウンロードボタンが押された時のみ）
+            # 注意: この部分はExcelダウンロードボタンのクリック時にのみ実行される
             
             # ダウンロードボタンと削除ボタンを横に並べる
             col1, col2 = st.columns([3, 1])
             
             with col1:
-                st.download_button(
+                if st.download_button(
                     label="Excelをダウンロード",
                     data=output,
                     file_name=f"{now_str}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                ):
+                    # Excelダウンロード時にDB保存
+                    try:
+                        save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
+                        st.success(f"DBに保存しました（バッチID: {now_str}）")
+                    except Exception as e:
+                        st.error(f"DB保存に失敗しました: {e}")
             
             with col2:
                 if processed_line_orders:  # 処理済みデータがある場合のみ削除ボタンを表示
@@ -1765,7 +1787,8 @@ if st.session_state.get("authentication_status"):
                                 
                                 if deleted_count > 0:
                                     st.success(f"✅ {deleted_count}行を削除しました")
-                                    # 画面を更新
+                                    # 新規解析フラグをリセットしてから画面を更新
+                                    st.session_state.new_parsing_occurred = False
                                     st.rerun()
                                 else:
                                     st.warning("削除された行がありません")
@@ -1811,7 +1834,8 @@ if st.session_state.get("authentication_status"):
                                     
                                     if deleted_rows > 0:
                                         st.success(f"✅ バッチ '{selected_batch}' を削除しました（{deleted_rows}行）")
-                                        # 画面を更新
+                                        # 新規解析フラグをリセットしてから画面を更新
+                                        st.session_state.new_parsing_occurred = False
                                         st.rerun()
                                     else:
                                         st.warning("削除された行がありません")
