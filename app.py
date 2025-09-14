@@ -116,7 +116,8 @@ def save_line_order_data(line_account, sender_name, image_data, message_text="")
         jst = timezone(timedelta(hours=9))
         current_time = datetime.now(jst)
         order_date = current_time.strftime("%Y/%m/%d")
-        timestamp = current_time.strftime("%Y%m%d_%H%M%S")
+        # マイクロ秒まで含めて一意化（同一秒内の複数アップロード対応）
+        timestamp = current_time.strftime("%Y%m%d_%H%M%S_%f")
         
         # 注文データを作成
         order_data = {
@@ -130,8 +131,17 @@ def save_line_order_data(line_account, sender_name, image_data, message_text="")
             "parsed_data": None  # 解析結果を保存するフィールドを追加
         }
         
-        # 画像データを保存
+        # 画像データを保存（同名ファイルの衝突防止）
         image_path = os.path.join(LINE_ORDERS_DIR, order_data["image_filename"])
+        base, ext = os.path.splitext(image_path)
+        n = 1
+        while os.path.exists(image_path):
+            image_path = f"{base}_{n}{ext}"
+            n += 1
+        
+        # 実際のファイル名でorder_dataを更新
+        order_data["image_filename"] = os.path.basename(image_path)
+        
         with open(image_path, "wb") as f:
             f.write(image_data)
         
@@ -165,12 +175,24 @@ def save_parsed_line_order_data(timestamp, parsed_data):
             with open(orders_file, "r", encoding="utf-8") as f:
                 orders = json.load(f)
             
-            # 指定されたタイムスタンプの注文を更新
+            updated = False
+            
+            # ① まず"未処理"の同timestampを優先して更新
             for order in orders:
-                if order['timestamp'] == timestamp:
+                if order.get('timestamp') == timestamp and not order.get('processed', False):
                     order['parsed_data'] = parsed_data
                     order['processed'] = True
+                    updated = True
                     break
+            
+            # ② 念のためフォールバック（既に処理済みばかりでも1件は更新）
+            if not updated:
+                for order in orders:
+                    if order.get('timestamp') == timestamp:
+                        order['parsed_data'] = parsed_data
+                        order['processed'] = True
+                        updated = True
+                        break
             
             with open(orders_file, "w", encoding="utf-8") as f:
                 json.dump(orders, f, ensure_ascii=False, indent=4)
