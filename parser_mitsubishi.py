@@ -93,8 +93,8 @@ def parse_mitsubishi(file_path: Union[str, BinaryIO, TextIO], file_name: str) ->
         next_row = row + 1 if row + 1 < df.shape[0] else row
 
         # 数量・単価を取得（新しい列番号）
-        quantity_raw = df.iloc[row, 24]  # X列（24列目）
-        unit_price_raw = df.iloc[row, 30]  # AD列（30列目）
+        quantity_raw = df.iloc[row, 23]  # W列（23列目）
+        unit_price_raw = df.iloc[row, 29]  # AC列（29列目）
         
         # 金額を計算（数量×単価）
         try:
@@ -112,9 +112,9 @@ def parse_mitsubishi(file_path: Union[str, BinaryIO, TextIO], file_name: str) ->
             "product_code": str(df.iloc[row, 5]),  # F列（5列目）- 変更なし
             "product_name": str(df.iloc[row, 7]),  # H列（7列目）- 変更なし
             "size": "",  # 追加：三菱はサイズ空
-            "quantity": str(quantity_raw),  # X列（24列目）
-            "unit": str(df.iloc[row, 28]),  # AB列（28列目）
-            "unit_price": str(unit_price_raw),  # AD列（30列目）
+            "quantity": str(quantity_raw),  # W列（23列目）
+            "unit": str(df.iloc[row, 27]),  # AA列（27列目）
+            "unit_price": str(unit_price_raw),  # AC列（29列目）
             "amount": str(amount_calculated),  # 数量×単価の計算結果
             "remark": " ".join(
                 str(cell) for cell in [

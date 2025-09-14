@@ -1640,17 +1640,13 @@ if st.session_state.get("authentication_status"):
                     key="download_excel_btn"
                 )
                 
-                # ダウンロードをトリガに保存
-                if downloaded:
-                    try:
-                        save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
-                        st.success(f"DBに保存しました（バッチID: {now_str}）")
-                        
-                        # データクリアフラグは設定しない（編集表削除機能を無効化）
-                        # st.session_state.data_clear_requested = True
-                        
-                    except Exception as e:
-                        st.error(f"DB保存に失敗しました: {e}")
+                # ダウンロード時のDB保存は無効化（データ複製を防ぐ）
+                # if downloaded:
+                #     try:
+                #         save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
+                #         st.success(f"DBに保存しました（バッチID: {now_str}）")
+                #     except Exception as e:
+                #         st.error(f"DB保存に失敗しました: {e}")
                 
                 # データクリアフラグが設定されている場合の処理
                 if st.session_state.get('data_clear_requested', False):
@@ -1694,18 +1690,28 @@ if st.session_state.get("authentication_status"):
                 )
                 if has_processed_data:
                     if st.button("🗑️ 処理済みデータ削除", type="secondary"):
-                        # LINE処理済みデータの削除
-                        if processed_line_orders:
-                            success, message = delete_processed_line_orders()
-                            if success:
-                                st.success(f"LINE注文データ: {message}")
-                            else:
-                                st.error(f"LINE注文データ削除エラー: {message}")
-                        
-                        # セッションの解析済みデータもクリア
-                        st.session_state.parsed_records = []
-                        st.session_state.data_edited = False
-                        st.rerun()
+                        try:
+                            # LINE処理済みデータの削除
+                            if processed_line_orders:
+                                success, message = delete_processed_line_orders()
+                                if success:
+                                    st.success(f"LINE注文データ: {message}")
+                                else:
+                                    st.error(f"LINE注文データ削除エラー: {message}")
+                            
+                            # セッションの解析済みデータもクリア
+                            st.session_state.parsed_records = []
+                            st.session_state.data_edited = False
+                            
+                            # 処理済みファイルの履歴もクリア（再処理可能にする）
+                            if 'processed_files' in st.session_state:
+                                st.session_state.processed_files.clear()
+                            
+                            st.success("✅ すべての処理済みデータを削除しました")
+                            st.rerun()
+                            
+                        except Exception as e:
+                            st.error(f"データ削除エラー: {e}")
         else:
             st.info("注文ファイルをアップロードしてください")
     
