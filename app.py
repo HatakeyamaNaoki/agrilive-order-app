@@ -1112,35 +1112,57 @@ if st.session_state.get("authentication_status"):
         
         # 手動アップロード機能（レイアウトを統一）
         with st.expander("📤 LINE画像を手動アップロード", expanded=True):
-            uploaded_line_image = st.file_uploader(
-                "LINEの注文画像をアップロード",
+            uploaded_line_images = st.file_uploader(
+                "LINEの注文画像をアップロード（複数選択可能）",
                 type=['png', 'jpg', 'jpeg'],
+                accept_multiple_files=True,
                 key="line_image_upload"
             )
             
-            if uploaded_line_image is not None:
-                # 二重保存防止用の簡易キー
-                upkey = f"{uploaded_line_image.name}_{uploaded_line_image.size}"
-                if st.session_state.get("line_image_saved_key") != upkey:
-                    try:
-                        image_bytes = uploaded_line_image.getvalue()  # .read()より安全
-                        ok, msg = save_line_order_data(
-                            username,   # line_accountはログインIDでOK
-                            name or "不明",  # 送信者名はアカウント名を流用
-                            image_bytes,
-                            ""          # メッセージは不要
-                        )
-                        if ok:
-                            st.session_state["line_image_saved_key"] = upkey
-                            st.success("LINE注文画像を保存しました。")
-                            st.rerun()
-                        else:
-                            st.error(f"保存エラー: {msg}")
-                    except Exception as e:
-                        st.error(f"保存エラー: {e}")
+            if uploaded_line_images:
+                # 二重保存防止用のセッション状態を初期化
+                if "saved_line_images" not in st.session_state:
+                    st.session_state.saved_line_images = set()
+                
+                saved_count = 0
+                error_count = 0
+                
+                for uploaded_line_image in uploaded_line_images:
+                    # 二重保存防止用の簡易キー
+                    upkey = f"{uploaded_line_image.name}_{uploaded_line_image.size}"
+                    
+                    if upkey not in st.session_state.saved_line_images:
+                        try:
+                            image_bytes = uploaded_line_image.getvalue()  # .read()より安全
+                            ok, msg = save_line_order_data(
+                                username,   # line_accountはログインIDでOK
+                                name or "不明",  # 送信者名はアカウント名を流用
+                                image_bytes,
+                                ""          # メッセージは不要
+                            )
+                            if ok:
+                                st.session_state.saved_line_images.add(upkey)
+                                saved_count += 1
+                            else:
+                                st.error(f"保存エラー ({uploaded_line_image.name}): {msg}")
+                                error_count += 1
+                        except Exception as e:
+                            st.error(f"保存エラー ({uploaded_line_image.name}): {e}")
+                            error_count += 1
+                
+                # 保存結果の表示
+                if saved_count > 0:
+                    st.success(f"{saved_count}件のLINE注文画像を保存しました。")
+                    if error_count > 0:
+                        st.warning(f"{error_count}件の保存に失敗しました。")
+                    st.rerun()
+                elif error_count > 0:
+                    st.error(f"{error_count}件すべての保存に失敗しました。")
 
-                # プレビューだけ表示
-                st.image(uploaded_line_image, caption="アップロードされたLINE画像", width=400)
+                # プレビュー表示
+                st.subheader("アップロードされたLINE画像")
+                for i, uploaded_line_image in enumerate(uploaded_line_images):
+                    st.image(uploaded_line_image, caption=f"画像 {i+1}: {uploaded_line_image.name}", width=400)
         
         # 既存のLINE注文データ表示
         if line_orders:
