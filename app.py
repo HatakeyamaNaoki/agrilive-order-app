@@ -1452,8 +1452,14 @@ if st.session_state.get("authentication_status"):
                         records.append(record)
             
             if uploaded_files:
-                # すべてのファイルを処理（同じファイル名でも再処理可能）
-                new_files = uploaded_files
+                # ファイルの重複チェックと多重解析防止
+                new_files = []
+                for file in uploaded_files:
+                    file_hash = f"{file.name}_{file.size}_{file.type}"
+                    if file_hash in st.session_state.processed_files:
+                        st.info(f"{file.name} は既に解析済みです（スキップ）")
+                        continue
+                    new_files.append(file)
                 
                 if new_files:
                     st.info(f"新しいファイル {len(new_files)} 件を解析します")
@@ -1468,8 +1474,16 @@ if st.session_state.get("authentication_status"):
                             file_like = io.BytesIO(content)
                             if filetype == 'infomart':
                                 records += parse_infomart(file_like, filename)
+                                st.success(f"{filename} の解析が完了しました")
+                                # 解析成功の末尾で必ず登録
+                                file_hash = f"{file.name}_{file.size}_{file.type}"
+                                st.session_state.processed_files.add(file_hash)
                             elif filetype == 'iporter':
                                 records += parse_iporter(file_like, filename)
+                                st.success(f"{filename} の解析が完了しました")
+                                # 解析成功の末尾で必ず登録
+                                file_hash = f"{file.name}_{file.size}_{file.type}"
+                                st.session_state.processed_files.add(file_hash)
                             else:
                                 st.warning(f"{filename} は未対応のフォーマットです")
 
@@ -1482,6 +1496,10 @@ if st.session_state.get("authentication_status"):
                                         mitsubishi_records = parse_mitsubishi(file_like, filename)
                                         records += mitsubishi_records
                                         st.success(f"{filename} の解析が完了しました")
+                                        
+                                        # 解析成功の末尾で必ず登録
+                                        file_hash = f"{file.name}_{file.size}_{file.type}"
+                                        st.session_state.processed_files.add(file_hash)
                                     except Exception as parse_error:
                                         st.error(f"{filename} の解析に失敗しました: {parse_error}")
                                         # ログから詳細情報を取得
@@ -1523,6 +1541,10 @@ if st.session_state.get("authentication_status"):
                                     if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
                                         st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
                                 st.success(f"{filename} の解析が完了しました")
+                                
+                                # 解析成功の末尾で必ず登録
+                                file_hash = f"{file.name}_{file.size}_{file.type}"
+                                st.session_state.processed_files.add(file_hash)
                             except Exception as e:
                                 st.error(f"{filename} の解析に失敗しました: {e}")
                                 st.error(f"詳細エラー: {str(e)}")
@@ -1566,6 +1588,12 @@ if st.session_state.get("authentication_status"):
                 ]
                 df = df.reindex(columns=columns)
                 df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "サイズ", "数量", "単位", "単価", "金額", "備考", "データ元"]
+                
+                # 重複行の除去
+                df = df.drop_duplicates(
+                    subset=["伝票番号","発注日","納品日","取引先名","商品コード","商品名","サイズ","数量","単位","単価","金額","備考","データ元"],
+                    keep="first"
+                )
 
                 edited_df = st.data_editor(
                     df,
@@ -1645,11 +1673,14 @@ if st.session_state.get("authentication_status"):
                     try:
                         save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
                         st.success(f"DBに保存しました（バッチID: {now_str}）")
-                        
-                        # エクセルダウンロード後に編集表のデータをクリア（複製を防ぐ）
+
+                        # --- 画面側のデータを完全初期化 ---
                         st.session_state.parsed_records = []
                         st.session_state.data_edited = False
-                        
+                        st.session_state.processed_files = set()
+                        st.session_state.pop("editor", None)   # Data Editorの保持値を破棄
+
+                        st.rerun()  # ← これが無いと同一表示が残って見える
                     except Exception as e:
                         st.error(f"DB保存に失敗しました: {e}")
                 
@@ -1688,43 +1719,30 @@ if st.session_state.get("authentication_status"):
                         st.session_state.data_clear_requested = False
             
             with col2:
-                # 処理済みデータがある場合のみ削除ボタンを表示（LINE以外も含む）
-                has_processed_data = (
-                    processed_line_orders or  # LINE処理済みデータ
-                    st.session_state.parsed_records  # その他の処理済みデータ
-                )
-                if has_processed_data:
-                    if st.button("🗑️ 処理済みデータ削除", type="secondary"):
-                        try:
-                            # LINE処理済みデータの削除
-                            if processed_line_orders:
-                                success, message = delete_processed_line_orders()
-                                if success:
-                                    st.success(f"LINE注文データ: {message}")
-                                else:
-                                    st.error(f"LINE注文データ削除エラー: {message}")
-                            
-                            # セッションの解析済みデータもクリア
-                            st.session_state.parsed_records = []
-                            st.session_state.data_edited = False
-                            
-                            # 処理済みファイルの履歴もクリア（再処理可能にする）
-                            if 'processed_files' in st.session_state:
-                                st.session_state.processed_files.clear()
-                            
-                            # 編集（注文一覧）画面のデータも確実にクリア
-                            if 'edited_df' in st.session_state:
-                                del st.session_state.edited_df
-                            
-                            # アップロードされたファイルの情報もクリア
-                            if 'uploaded_files' in st.session_state:
-                                st.session_state.uploaded_files = []
-                            
-                            st.success("✅ すべての処理済みデータを削除しました")
-                            st.rerun()
-                            
-                        except Exception as e:
-                            st.error(f"データ削除エラー: {e}")
+                # 追加：タブ2の削除ボタンの直前あたりで最新状態を取得して判定
+                line_orders_now = get_line_orders_for_user(username)
+                processed_line_orders_now = [o for o in line_orders_now if o.get("processed", False)]
+                has_processed_data = bool(processed_line_orders_now or st.session_state.parsed_records)
+                
+                # 常時ボタン表示（データが無ければdisabled）
+                if st.button("🗑️ 処理済みデータ削除", type="secondary", disabled=not has_processed_data, key="btn_delete_processed"):
+                    try:
+                        # LINE処理済みデータを実ファイルから削除
+                        if processed_line_orders_now:
+                            success, message = delete_processed_line_orders()
+                            (st.success if success else st.error)(message)
+
+                        # 画面・セッションも完全初期化
+                        st.session_state.parsed_records = []
+                        st.session_state.data_edited = False
+                        if 'processed_files' in st.session_state:
+                            st.session_state.processed_files.clear()
+                        st.session_state.pop("editor", None)   # ← ここが重要
+
+                        st.success("✅ すべての処理済みデータを削除しました")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"データ削除エラー: {e}")
         else:
             st.info("注文ファイルをアップロードしてください")
     
