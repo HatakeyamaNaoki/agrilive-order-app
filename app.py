@@ -818,8 +818,6 @@ if st.session_state.get("authentication_status"):
     name = st.session_state.get("name", "")
     config = load_config(user_id=username)
     
-    # ログアウトボタンを一番上に配置
-    authenticator.logout('ログアウト', 'sidebar')
     
     # データベース初期化
     init_db()
@@ -2032,6 +2030,10 @@ if not st.session_state.get("authentication_status"):
         else:
             st.sidebar.error(f"❌ {result['message']}")
             st.sidebar.info(f"時刻: {result['timestamp']}")
+
+    # ログアウトボタンをサイドバーの最後に配置
+    st.sidebar.markdown("---")
+    authenticator.logout('ログアウト', 'sidebar')
 
 # --- ログイン画面の下に規約を表示（ここで順序調整） ---
 if not st.session_state.get("authentication_status"):
