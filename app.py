@@ -1452,13 +1452,8 @@ if st.session_state.get("authentication_status"):
                         records.append(record)
             
             if uploaded_files:
-                # 新しいファイルのみを処理
-                new_files = []
-                for file in uploaded_files:
-                    file_hash = f"{file.name}_{file.size}_{file.type}"
-                    if file_hash not in st.session_state.processed_files:
-                        new_files.append(file)
-                        st.session_state.processed_files.add(file_hash)
+                # すべてのファイルを処理（同じファイル名でも再処理可能）
+                new_files = uploaded_files
                 
                 if new_files:
                     st.info(f"新しいファイル {len(new_files)} 件を解析します")
@@ -1651,8 +1646,8 @@ if st.session_state.get("authentication_status"):
                         save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
                         st.success(f"DBに保存しました（バッチID: {now_str}）")
                         
-                        # データクリアフラグを設定（st.rerun()は使わない）
-                        st.session_state.data_clear_requested = True
+                        # データクリアフラグは設定しない（編集表削除機能を無効化）
+                        # st.session_state.data_clear_requested = True
                         
                     except Exception as e:
                         st.error(f"DB保存に失敗しました: {e}")
@@ -1692,16 +1687,25 @@ if st.session_state.get("authentication_status"):
                         st.session_state.data_clear_requested = False
             
             with col2:
-                if processed_line_orders:  # 処理済みデータがある場合のみ削除ボタンを表示
+                # 処理済みデータがある場合のみ削除ボタンを表示（LINE以外も含む）
+                has_processed_data = (
+                    processed_line_orders or  # LINE処理済みデータ
+                    st.session_state.parsed_records  # その他の処理済みデータ
+                )
+                if has_processed_data:
                     if st.button("🗑️ 処理済みデータ削除", type="secondary"):
-                        success, message = delete_processed_line_orders()
-                        if success:
-                            st.success(message)
-                            # セッションの解析済みデータもクリア
-                            st.session_state.parsed_records = []
-                            st.rerun()
-                        else:
-                            st.error(message)
+                        # LINE処理済みデータの削除
+                        if processed_line_orders:
+                            success, message = delete_processed_line_orders()
+                            if success:
+                                st.success(f"LINE注文データ: {message}")
+                            else:
+                                st.error(f"LINE注文データ削除エラー: {message}")
+                        
+                        # セッションの解析済みデータもクリア
+                        st.session_state.parsed_records = []
+                        st.session_state.data_edited = False
+                        st.rerun()
         else:
             st.info("注文ファイルをアップロードしてください")
     

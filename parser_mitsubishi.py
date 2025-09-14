@@ -92,18 +92,30 @@ def parse_mitsubishi(file_path: Union[str, BinaryIO, TextIO], file_name: str) ->
 
         next_row = row + 1 if row + 1 < df.shape[0] else row
 
+        # 数量・単価を取得（新しい列番号）
+        quantity_raw = df.iloc[row, 24]  # X列（24列目）
+        unit_price_raw = df.iloc[row, 30]  # AD列（30列目）
+        
+        # 金額を計算（数量×単価）
+        try:
+            quantity_num = float(quantity_raw) if pd.notna(quantity_raw) else 0
+            unit_price_num = float(unit_price_raw) if pd.notna(unit_price_raw) else 0
+            amount_calculated = quantity_num * unit_price_num
+        except (ValueError, TypeError):
+            amount_calculated = 0
+        
         item = {
             "order_id": denpyo_no,
             "order_date": order_date,
             "delivery_date": delivery_date,
             "partner_name": customer_name,
-            "product_code": str(df.iloc[row, 5]),
-            "product_name": str(df.iloc[row, 7]),
+            "product_code": str(df.iloc[row, 5]),  # F列（5列目）- 変更なし
+            "product_name": str(df.iloc[row, 7]),  # H列（7列目）- 変更なし
             "size": "",  # 追加：三菱はサイズ空
-            "quantity": str(df.iloc[row, 34]),
-            "unit": str(df.iloc[row, 38]),
-            "unit_price": str(df.iloc[row, 41]),
-            "amount": str(df.iloc[row, 46]),
+            "quantity": str(quantity_raw),  # X列（24列目）
+            "unit": str(df.iloc[row, 28]),  # AB列（28列目）
+            "unit_price": str(unit_price_raw),  # AD列（30列目）
+            "amount": str(amount_calculated),  # 数量×単価の計算結果
             "remark": " ".join(
                 str(cell) for cell in [
                     df.iloc[row, 17],
