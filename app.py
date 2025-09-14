@@ -1640,13 +1640,18 @@ if st.session_state.get("authentication_status"):
                     key="download_excel_btn"
                 )
                 
-                # ダウンロード時のDB保存は無効化（データ複製を防ぐ）
-                # if downloaded:
-                #     try:
-                #         save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
-                #         st.success(f"DBに保存しました（バッチID: {now_str}）")
-                #     except Exception as e:
-                #         st.error(f"DB保存に失敗しました: {e}")
+                # ダウンロード時にDBに保存（履歴DBにデータを保存）
+                if downloaded:
+                    try:
+                        save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
+                        st.success(f"DBに保存しました（バッチID: {now_str}）")
+                        
+                        # エクセルダウンロード後に編集表のデータをクリア（複製を防ぐ）
+                        st.session_state.parsed_records = []
+                        st.session_state.data_edited = False
+                        
+                    except Exception as e:
+                        st.error(f"DB保存に失敗しました: {e}")
                 
                 # データクリアフラグが設定されている場合の処理
                 if st.session_state.get('data_clear_requested', False):
@@ -1706,6 +1711,14 @@ if st.session_state.get("authentication_status"):
                             # 処理済みファイルの履歴もクリア（再処理可能にする）
                             if 'processed_files' in st.session_state:
                                 st.session_state.processed_files.clear()
+                            
+                            # 編集（注文一覧）画面のデータも確実にクリア
+                            if 'edited_df' in st.session_state:
+                                del st.session_state.edited_df
+                            
+                            # アップロードされたファイルの情報もクリア
+                            if 'uploaded_files' in st.session_state:
+                                st.session_state.uploaded_files = []
                             
                             st.success("✅ すべての処理済みデータを削除しました")
                             st.rerun()
