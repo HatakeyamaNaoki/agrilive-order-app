@@ -850,7 +850,7 @@ if st.session_state.get("authentication_status"):
     if line_orders:
         st.sidebar.success(f"📱 LINE注文データ: {len(line_orders)}件")
         latest_orders = sorted(line_orders, key=lambda x: x['timestamp'], reverse=True)[:3]
-        for order in latest_orders:
+        for i, order in enumerate(latest_orders):
             with st.sidebar.expander(f"📋 {order['sender_name']} - {order['order_date']}"):
                 st.write(f"**送信者**: {order['sender_name']}")
                 st.write(f"**受信日**: {order['order_date']}")
@@ -859,8 +859,8 @@ if st.session_state.get("authentication_status"):
                 else:
                     st.warning("⏳ 未処理")
                 
-                # 削除ボタン
-                if st.sidebar.button(f"🗑️ 削除", key=f"sidebar_delete_{order['timestamp']}"):
+                # 削除ボタン（インデックスを含めてキーをユニークにする）
+                if st.sidebar.button(f"🗑️ 削除", key=f"sidebar_delete_{i}_{order['timestamp']}"):
                     success, message = delete_line_order_by_timestamp(order['timestamp'])
                     if success:
                         st.sidebar.success(message)
@@ -1275,7 +1275,7 @@ if st.session_state.get("authentication_status"):
                         
                         with col2:
                             # 解析ボタン
-                            if st.button(f"解析開始", key=f"parse_{order['timestamp']}"):
+                            if st.button(f"解析開始", key=f"parse_{i}_{order['timestamp']}"):
                                 try:
                                     with st.spinner("LINE注文を解析中..."):
                                         # OpenAI APIで解析
@@ -1338,7 +1338,7 @@ if st.session_state.get("authentication_status"):
                                     st.error(f"LINE注文解析エラー: {e}")
                             
                             # 削除ボタン
-                            if st.button(f"削除", key=f"delete_{order['timestamp']}"):
+                            if st.button(f"削除", key=f"delete_{i}_{order['timestamp']}"):
                                 # 注文データを削除
                                 orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
                                 with open(orders_file, "r", encoding="utf-8") as f:
