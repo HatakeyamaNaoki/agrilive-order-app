@@ -1031,6 +1031,10 @@ if st.session_state.get("authentication_status"):
     else:
         # 本番環境の場合 - APIキー情報は表示しない
         pass
+    
+    # ログアウトボタンをサイドバーの最後に配置
+    st.sidebar.markdown("---")
+    authenticator.logout('ログアウト', 'sidebar')
 
     # タブ構成で画面を整理
     tab1, tab2, tab3 = st.tabs(["📤 アップロード/解析", "📋 編集（注文一覧）", "🕘 履歴（DB）"])
@@ -2030,10 +2034,6 @@ if not st.session_state.get("authentication_status"):
         else:
             st.sidebar.error(f"❌ {result['message']}")
             st.sidebar.info(f"時刻: {result['timestamp']}")
-
-    # ログアウトボタンをサイドバーの最後に配置
-    st.sidebar.markdown("---")
-    authenticator.logout('ログアウト', 'sidebar')
 
 # --- ログイン画面の下に規約を表示（ここで順序調整） ---
 if not st.session_state.get("authentication_status"):
