@@ -1040,10 +1040,58 @@ if st.session_state.get("authentication_status"):
     tab1, tab2, tab3 = st.tabs(["📤 アップロード/解析", "📋 編集（注文一覧）", "🕘 履歴（DB）"])
     
     with tab1:
-        # LINE注文データの表示
-        line_orders = get_line_orders_for_user(username)
+        # 注文データファイルのアップロード（最上段に移動）
+        st.subheader("注文データファイルのアップロード")
         
-        # LINE注文データの表示
+        # セッション状態の初期化（ファイルアップローダーの前に配置）
+        if 'data_edited' not in st.session_state:
+            st.session_state.data_edited = False
+        
+        if 'processed_files' not in st.session_state:
+            st.session_state.processed_files = set()
+        
+        if 'parsed_records' not in st.session_state:
+            st.session_state.parsed_records = []
+        
+        # PDF画像表示設定（カラムレイアウトを調整して縦位置を合わせる）
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            uploaded_files = st.file_uploader(
+                label="Infomart / IPORTER / PDF 等の注文ファイルをここにドラッグ＆ドロップまたは選択してください",
+                accept_multiple_files=True,
+                type=['txt', 'csv', 'xlsx', 'pdf'],
+                key="file_uploader"
+            )
+            # 新しいファイルがアップロードされた場合のみ編集状態をリセット
+            if uploaded_files:
+                new_files_count = 0
+                for file in uploaded_files:
+                    file_hash = f"{file.name}_{file.size}_{file.type}"
+                    if file_hash not in st.session_state.processed_files:
+                        new_files_count += 1
+                
+                if new_files_count > 0:
+                    st.session_state.data_edited = False
+        with col2:
+            st.write("")  # 上部の空白を調整
+            show_pdf_images = st.checkbox("PDF画像を表示", value=True, help="PDFファイルの画像を表示するかどうかを設定します")
+            
+            # 解析済みファイルリセットボタン
+            if st.button("🔄 解析済みファイルをリセット", key="reset_processed_files", help="解析済みファイルの履歴をクリアします"):
+                st.session_state.processed_files = set()
+                st.session_state.data_edited = False
+                st.session_state.parsed_records = []  # 解析済みデータもクリア
+                st.success("解析済みファイルをリセットしました。")
+                st.rerun()
+
+        records = []
+        debug_details = []
+        
+        # LINE注文データを取得（スコープ外でも使用するため、ここで定義）
+        line_orders = get_line_orders_for_user(username)
+        processed_line_orders = [order for order in line_orders if order.get("processed", False)]
+        
+        # LINE注文データの表示（2番目に移動）
         st.subheader("📱 LINE注文データ")
         
         # 統計情報
@@ -1052,68 +1100,47 @@ if st.session_state.get("authentication_status"):
             unprocessed_orders = [order for order in line_orders if not order.get("processed", False)]
             processed_orders = [order for order in line_orders if order.get("processed", False)]
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("総注文数", total_orders)
             with col2:
                 st.metric("未処理", len(unprocessed_orders))
             with col3:
                 st.metric("処理済み", len(processed_orders))
+            with col4:
+                st.metric("解析済みLINE注文", len(processed_orders))
         
         # 手動アップロード機能（レイアウトを統一）
-        with st.expander("📤 LINE画像を手動アップロード"):
+        with st.expander("📤 LINE画像を手動アップロード", expanded=True):
             uploaded_line_image = st.file_uploader(
                 "LINEの注文画像をアップロード",
                 type=['png', 'jpg', 'jpeg'],
                 key="line_image_upload"
             )
             
-            if uploaded_line_image:
-                col1, col2 = st.columns([3, 1])
-                
-                with col1:
-                    st.image(uploaded_line_image, caption="アップロードされたLINE画像", width=400)
-                
-                with col2:
-                    st.write("")  # 上部の空白を調整
-                    sender_name = st.text_input("送信者名", value="", key="sender_name")
-                    message_text = st.text_area("メッセージ内容（オプション）", key="message_text")
-                    
-                    if st.button("LINE注文として保存", key="save_line_order"):
-                        try:
-                            # 画像データを保存
-                            image_data = uploaded_line_image.read()
-                            
-                            success, message = save_line_order_data(
-                                username,  # ユーザー名をLINEアカウントIDとして使用
-                                sender_name or "不明",
-                                image_data,
-                                message_text
-                            )
-                            
-                            if success:
-                                st.success("LINE注文データを保存しました！")
-                                st.info(f"保存されたデータ: 送信者={sender_name or '不明'}, ユーザー={username}")
-                                
-                                # 保存後のデータ確認
-                                st.info("保存後のデータ確認:")
-                                orders_file = os.path.join(LINE_ORDERS_DIR, "orders.json")
-                                if os.path.exists(orders_file):
-                                    with open(orders_file, "r", encoding="utf-8") as f:
-                                        all_orders = json.load(f)
-                                    st.info(f"- 全注文データ数: {len(all_orders)}")
-                                    for i, order in enumerate(all_orders[-3:]):  # 最新3件
-                                        st.info(f"- 注文{i+1}: line_account={order.get('line_account')}, sender_name={order.get('sender_name')}")
-                                
-                                # 3秒間待機してからページを再読み込み
-                                import time
-                                time.sleep(3)
-                                st.rerun()
-                            else:
-                                st.error(f"保存エラー: {message}")
-                        except Exception as e:
-                            st.error(f"保存エラー: {e}")
-                            st.error(f"詳細: {str(e)}")
+            if uploaded_line_image is not None:
+                # 二重保存防止用の簡易キー
+                upkey = f"{uploaded_line_image.name}_{uploaded_line_image.size}"
+                if st.session_state.get("line_image_saved_key") != upkey:
+                    try:
+                        image_bytes = uploaded_line_image.getvalue()  # .read()より安全
+                        ok, msg = save_line_order_data(
+                            username,   # line_accountはログインIDでOK
+                            name or "不明",  # 送信者名はアカウント名を流用
+                            image_bytes,
+                            ""          # メッセージは不要
+                        )
+                        if ok:
+                            st.session_state["line_image_saved_key"] = upkey
+                            st.success("LINE注文画像を保存しました。")
+                            st.rerun()
+                        else:
+                            st.error(f"保存エラー: {msg}")
+                    except Exception as e:
+                        st.error(f"保存エラー: {e}")
+
+                # プレビューだけ表示
+                st.image(uploaded_line_image, caption="アップロードされたLINE画像", width=400)
         
         # 既存のLINE注文データ表示
         if line_orders:
@@ -1311,56 +1338,6 @@ if st.session_state.get("authentication_status"):
         else:
             st.info("LINE注文データはありません。手動アップロード機能をご利用ください。")
     
-    with tab1:
-        st.subheader("注文データファイルのアップロード")
-        
-        # セッション状態の初期化（ファイルアップローダーの前に配置）
-        if 'data_edited' not in st.session_state:
-            st.session_state.data_edited = False
-        
-        if 'processed_files' not in st.session_state:
-            st.session_state.processed_files = set()
-        
-        if 'parsed_records' not in st.session_state:
-            st.session_state.parsed_records = []
-        
-        # PDF画像表示設定（カラムレイアウトを調整して縦位置を合わせる）
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            uploaded_files = st.file_uploader(
-                label="Infomart / IPORTER / PDF 等の注文ファイルをここにドラッグ＆ドロップまたは選択してください",
-                accept_multiple_files=True,
-                type=['txt', 'csv', 'xlsx', 'pdf'],
-                key="file_uploader"
-            )
-            # 新しいファイルがアップロードされた場合のみ編集状態をリセット
-            if uploaded_files:
-                new_files_count = 0
-                for file in uploaded_files:
-                    file_hash = f"{file.name}_{file.size}_{file.type}"
-                    if file_hash not in st.session_state.processed_files:
-                        new_files_count += 1
-                
-                if new_files_count > 0:
-                    st.session_state.data_edited = False
-        with col2:
-            st.write("")  # 上部の空白を調整
-            show_pdf_images = st.checkbox("PDF画像を表示", value=True, help="PDFファイルの画像を表示するかどうかを設定します")
-            
-            # 解析済みファイルリセットボタン
-            if st.button("🔄 解析済みファイルをリセット", key="reset_processed_files", help="解析済みファイルの履歴をクリアします"):
-                st.session_state.processed_files = set()
-                st.session_state.data_edited = False
-                st.session_state.parsed_records = []  # 解析済みデータもクリア
-                st.success("解析済みファイルをリセットしました。")
-                st.rerun()
-
-        records = []
-        debug_details = []
-        
-        # LINE注文データを取得（スコープ外でも使用するため、ここで定義）
-        line_orders = get_line_orders_for_user(username)
-        processed_line_orders = [order for order in line_orders if order.get("processed", False)]
         
         # 編集済みの場合は再解析をスキップ
         if not st.session_state.data_edited:
@@ -1369,16 +1346,7 @@ if st.session_state.get("authentication_status"):
             
             # 全データ表示機能を追加
             if processed_line_orders:
-                st.subheader("📱 解析済みLINE注文データ")
                 
-                # 統計情報
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("解析済みLINE注文", len(processed_line_orders))
-                with col2:
-                    st.metric("送信者数", len(set(order['sender_name'] for order in processed_line_orders)))
-                with col3:
-                    st.metric("最新更新", max(order['order_date'] for order in processed_line_orders) if processed_line_orders else "なし")
                 
                 # 解析済みデータの詳細表示（レイアウトを統一）
                 with st.expander("📋 解析済みLINE注文詳細", expanded=False):
