@@ -1165,6 +1165,7 @@ if st.session_state.get("authentication_status"):
                                                         "partner_name": parsed_data.get("partner_name", order['sender_name']),
                                                         "product_code": item.get("product_code", ""),
                                                         "product_name": item.get("product_name", ""),
+                                                        "size": item.get("size", ""),
                                                         "quantity": item.get("quantity", ""),
                                                         "unit": item.get("unit", ""),
                                                         "unit_price": item.get("unit_price", ""),
@@ -1249,6 +1250,7 @@ if st.session_state.get("authentication_status"):
                                                 "partner_name": parsed_data.get("partner_name", order['sender_name']),
                                                 "product_code": item.get("product_code", ""),
                                                 "product_name": item.get("product_name", ""),
+                                                "size": item.get("size", ""),
                                                 "quantity": item.get("quantity", ""),
                                                 "unit": item.get("unit", ""),
                                                 "unit_price": item.get("unit_price", ""),
@@ -1269,7 +1271,7 @@ if st.session_state.get("authentication_status"):
                                             df_line = pd.DataFrame(records)
                                             if not df_line.empty:
                                                 # 列名を日本語に変換
-                                                df_line.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
+                                                df_line.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "サイズ", "数量", "単位", "単価", "金額", "備考", "データ元"]
                                                 # バッチIDを生成
                                                 jst = pytz.timezone("Asia/Tokyo")
                                                 now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
@@ -1421,6 +1423,7 @@ if st.session_state.get("authentication_status"):
                                 "partner_name": parsed_data.get("partner_name", order['sender_name']),
                                 "product_code": item.get("product_code", ""),
                                 "product_name": item.get("product_name", ""),
+                                "size": item.get("size", ""),
                                 "quantity": item.get("quantity", ""),
                                 "unit": item.get("unit", ""),
                                 "unit_price": item.get("unit_price", ""),
@@ -1438,6 +1441,7 @@ if st.session_state.get("authentication_status"):
                             "partner_name": order['sender_name'],
                             "product_code": "",
                             "product_name": "LINE注文データ（解析結果なし）",
+                            "size": "",
                             "quantity": "",
                             "unit": "",
                             "unit_price": "",
@@ -1563,10 +1567,10 @@ if st.session_state.get("authentication_status"):
             if not df.empty:
                 columns = [
                     "order_id", "order_date", "delivery_date", "partner_name",
-                    "product_code", "product_name", "quantity", "unit", "unit_price", "amount", "remark", "data_source"
+                    "product_code", "product_name", "size", "quantity", "unit", "unit_price", "amount", "remark", "data_source"
                 ]
                 df = df.reindex(columns=columns)
-                df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "数量", "単位", "単価", "金額", "備考", "データ元"]
+                df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "サイズ", "数量", "単位", "単価", "金額", "備考", "データ元"]
 
                 edited_df = st.data_editor(
                     df,
@@ -1590,10 +1594,10 @@ if st.session_state.get("authentication_status"):
 
             df_agg = (
                 df_sorted
-                .groupby(["商品名", "備考", "単位"], dropna=False, as_index=False)
+                .groupby(["商品名", "サイズ", "備考", "単位"], dropna=False, as_index=False)
                 .agg({"数量": "sum"})
             )
-            df_agg = df_agg[["商品名", "備考", "数量", "単位"]]
+            df_agg = df_agg[["商品名", "サイズ", "備考", "数量", "単位"]]
             df_agg = df_agg.sort_values(by=["商品名"])
             output = io.BytesIO()
             jst = pytz.timezone("Asia/Tokyo")

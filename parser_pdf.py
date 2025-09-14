@@ -230,6 +230,7 @@ def parse_pdf_handwritten(pdf_bytes, filename):
                 "partner_name": partner_name,
                 "product_code": item.get("product_code", "") or item.get("商品コード", ""),
                 "product_name": product_name,
+                "size": item.get("size", "") or item.get("サイズ", ""),  # 追加
                 "quantity": quantity,
                 "unit": item.get("unit", "") or item.get("単位", ""),
                 "unit_price": item.get("unit_price", "") or item.get("単価", ""),
@@ -248,6 +249,7 @@ def parse_pdf_handwritten(pdf_bytes, filename):
                 "partner_name": partner_name,
                 "product_code": "",
                 "product_name": "商品情報なし",
+                "size": "",  # 追加
                 "quantity": "",
                 "unit": "",
                 "unit_price": "",

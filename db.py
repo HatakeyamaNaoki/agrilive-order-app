@@ -17,6 +17,7 @@ J2E = {
     "取引先名": "partner_name",
     "商品コード": "product_code",
     "商品名": "product_name",
+    "サイズ": "size",  # 追加
     "数量": "quantity",
     "単位": "unit",
     "単価": "unit_price",
@@ -36,7 +37,7 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
 
     # 必須列を欠けなく用意
     cols = ["order_id","order_date","delivery_date","partner_name",
-            "product_code","product_name","quantity","unit",
+            "product_code","product_name","size","quantity","unit",
             "unit_price","amount","remark","data_source"]
     for c in cols:
         if c not in df2.columns:
@@ -74,6 +75,7 @@ def init_db():
             partner_name TEXT,
             product_code TEXT, 
             product_name TEXT, 
+            size TEXT,                 -- 追加
             quantity REAL, 
             unit TEXT,
             unit_price REAL, 
@@ -84,6 +86,11 @@ def init_db():
             created_at TEXT NOT NULL
         );
         """)
+        
+        # --- 既存DB移行（size列がなければ追加） ---
+        cols = [r[1] for r in c.execute("PRAGMA table_info(order_lines)").fetchall()]
+        if "size" not in cols:
+            c.execute("ALTER TABLE order_lines ADD COLUMN size TEXT;")
         
         # バッチ管理テーブル
         c.execute("""
@@ -97,7 +104,7 @@ def init_db():
 def _calc_hash(row: dict) -> str:
     """行データのハッシュ値を計算（重複防止用）"""
     keys = ["order_id", "order_date", "delivery_date", "partner_name",
-            "product_code", "product_name", "quantity", "unit",
+            "product_code", "product_name", "size", "quantity", "unit",
             "unit_price", "amount", "remark", "data_source", "batch_id"]
     s = "|".join(str(row.get(k, "")) for k in keys)
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
@@ -115,7 +122,7 @@ def save_order_lines(df, batch_id: str, note: str = None):
         
         # 行をINSERT（重複はrow_hashのUNIQUEで無視）
         cols = ["order_id", "order_date", "delivery_date", "partner_name",
-                "product_code", "product_name", "quantity", "unit",
+                "product_code", "product_name", "size", "quantity", "unit",
                 "unit_price", "amount", "remark", "data_source"]
         
         for _, r in df.iterrows():
@@ -126,11 +133,11 @@ def save_order_lines(df, batch_id: str, note: str = None):
             c.execute("""
             INSERT OR IGNORE INTO order_lines
             (batch_id, order_id, order_date, delivery_date, partner_name,
-             product_code, product_name, quantity, unit, unit_price, amount, remark, data_source,
+             product_code, product_name, size, quantity, unit, unit_price, amount, remark, data_source,
              row_hash, created_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (batch_id, row["order_id"], row["order_date"], row["delivery_date"], row["partner_name"],
-                  row["product_code"], row["product_name"], row["quantity"], row["unit"],
+                  row["product_code"], row["product_name"], row["size"], row["quantity"], row["unit"],
                   row["unit_price"], row["amount"], row["remark"], row["data_source"],
                   h, now))
 
@@ -147,7 +154,7 @@ def load_batch(batch_id: str):
     with _conn() as c:
         cur = c.execute("""
         SELECT order_id as '伝票番号', order_date as '発注日', delivery_date as '納品日', partner_name as '取引先名',
-               product_code as '商品コード', product_name as '商品名', quantity as '数量', unit as '単位',
+               product_code as '商品コード', product_name as '商品名', size as 'サイズ', quantity as '数量', unit as '単位',
                unit_price as '単価', amount as '金額', remark as '備考', data_source as 'データ元'
         FROM order_lines
         WHERE batch_id = ?

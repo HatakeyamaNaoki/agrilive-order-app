@@ -99,6 +99,7 @@ def parse_mitsubishi(file_path: Union[str, BinaryIO, TextIO], file_name: str) ->
             "partner_name": customer_name,
             "product_code": str(df.iloc[row, 5]),
             "product_name": str(df.iloc[row, 7]),
+            "size": "",  # 追加：三菱はサイズ空
             "quantity": str(df.iloc[row, 34]),
             "unit": str(df.iloc[row, 38]),
             "unit_price": str(df.iloc[row, 41]),

@@ -45,6 +45,7 @@ def parse_infomart(file_buffer, filename):
             "partner_name": row[idx_partner_name],
             "product_code": row[idx_product_code],
             "product_name": row[idx_product_name],
+            "size": "",  # 追加：Infomartはサイズ空
             "quantity": row[idx_quantity],
             "unit": row[idx_unit],
             "unit_price": row[idx_unit_price],

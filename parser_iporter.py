@@ -52,6 +52,7 @@ def parse_iporter(file, filename=None):
                 "partner_name": partner_name,
                 "product_code": row[44].strip() if len(row) > 44 else "",
                 "product_name": row[46].strip() if len(row) > 46 else "",
+                "size": "",  # 追加：IPORTERはサイズ空
                 "quantity": row[47].strip() if len(row) > 47 else "",
                 "unit": row[48].strip() if len(row) > 48 else "",
                 "unit_price": row[51].replace("円", "").replace(",", "").strip() if len(row) > 51 else "",
