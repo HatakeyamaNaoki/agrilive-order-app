@@ -1182,7 +1182,14 @@ if st.session_state.get("authentication_status"):
                                 processed_count = 0
                                 error_count = 0
                                 
-                                for order in unprocessed_orders:
+                                # 処理順序を安定化（タイムスタンプ順）
+                                sorted_orders = sorted(unprocessed_orders, key=lambda x: x['timestamp'])
+                                
+                                # デバッグ情報
+                                st.info(f"処理対象: {len(sorted_orders)}件の注文")
+                                
+                                for i, order in enumerate(sorted_orders, 1):
+                                    st.info(f"処理中 ({i}/{len(sorted_orders)}): {order['sender_name']} - {order['timestamp']}")
                                     try:
                                         image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
                                         if os.path.exists(image_path):
@@ -1194,44 +1201,17 @@ if st.session_state.get("authentication_status"):
                                                 order['order_date'] # 受信日時を渡す
                                             )
                                             
-                                            # 解析結果を保存
+                                            # 解析結果を保存（processedフラグも更新される）
                                             success, message = save_parsed_line_order_data(order['timestamp'], parsed_data)
-                                            if not success:
-                                                st.error(f"解析結果の保存に失敗: {message}")
+                                            if success:
+                                                processed_count += 1
+                                            else:
+                                                error_count += 1
+                                                st.error(f"解析結果の保存に失敗 ({order['sender_name']}): {message}")
                                             
-                                            # データベースに保存
-                                            try:
-                                                # 標準形式に変換
-                                                records = []
-                                                delivery_date = parsed_data.get("delivery_date", order['order_date'])
-                                                items = parsed_data.get("items", [])
-                                                
-                                                for item in items:
-                                                    record = {
-                                                        "order_id": item.get("order_id", ""),
-                                                        "order_date": order['order_date'],
-                                                        "delivery_date": delivery_date,
-                                                        "partner_name": parsed_data.get("partner_name", order['sender_name']),
-                                                        "product_code": item.get("product_code", ""),
-                                                        "product_name": item.get("product_name", ""),
-                                                        "size": item.get("size", ""),
-                                                        "quantity": item.get("quantity", ""),
-                                                        "unit": item.get("unit", ""),
-                                                        "unit_price": item.get("unit_price", ""),
-                                                        "amount": item.get("amount", ""),
-                                                        "remark": item.get("remark", ""),
-                                                        "data_source": f"LINE注文_{order['timestamp']}"
-                                                    }
-                                                    records.append(record)
-                                                
-                                                # LINE解析結果を画面表示のみ（DB保存はExcelダウンロード時）
-                                                st.success(f"LINE注文解析完了: {order['sender_name']}")
-                                            except Exception as e:
-                                                st.error(f"LINE解析エラー ({order['sender_name']}): {e}")
-                                            
-                                            processed_count += 1
                                         else:
                                             error_count += 1
+                                            st.error(f"画像ファイルが見つかりません ({order['sender_name']}): {order['image_filename']}")
                                     except Exception as e:
                                         error_count += 1
                                         st.error(f"解析エラー ({order['sender_name']}): {e}")
