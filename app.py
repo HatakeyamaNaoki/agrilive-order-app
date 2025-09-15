@@ -1541,6 +1541,7 @@ if st.session_state.get("authentication_status"):
                 st.rerun()
 
         # PDF解析結果の表示（注文データファイルアップロードセクション内）
+        pdf_contents = {}  # PDFファイルの内容を保存
         if uploaded_files:
             # 新しいファイルがアップロードされた場合の処理
             new_files = []
@@ -1552,10 +1553,11 @@ if st.session_state.get("authentication_status"):
             if new_files:
                 st.info(f"新しいファイル {len(new_files)} 件を解析します")
                 
-                # PDFファイルの画像表示
+                # PDFファイルの画像表示と内容保存
                 for file in new_files:
                     if file.name.lower().endswith(".pdf"):
                         content = file.read()
+                        pdf_contents[file.name] = content  # 内容を保存
                         if show_pdf_images:
                             pdf_images = extract_pdf_images(content)
                             if pdf_images:
@@ -2106,10 +2108,11 @@ if st.session_state.get("authentication_status"):
                                 st.error(f"{filename} の読み込みに失敗しました: {e}")
                         
                         elif filename.lower().endswith(".pdf"):
-                            # PDF画像の抽出（表示は後で行う）
-                            pdf_images = None
-                            if show_pdf_images:
-                                pdf_images = extract_pdf_images(content)
+                            # 保存されたPDF内容を使用
+                            if filename in pdf_contents:
+                                content = pdf_contents[filename]
+                            else:
+                                content = file.read()
                             
                             # PDF解析の実行
                             try:
