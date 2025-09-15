@@ -1556,12 +1556,20 @@ if st.session_state.get("authentication_status"):
                     if file.name.lower().endswith(".pdf"):
                         content = file.read()
                         pdf_contents[file.name] = content  # 内容を保存
+                        
+                        # PDFの上に進捗表示用のプレースホルダーを作成
+                        status_placeholder = st.empty()
+                        status_placeholder.info(f"**{file.name}** を解析中...")
+                        
+                        # プレースホルダーをセッション状態に保存
+                        if "pdf_status_placeholders" not in st.session_state:
+                            st.session_state.pdf_status_placeholders = {}
+                        st.session_state.pdf_status_placeholders[file.name] = status_placeholder
+                        
                         if show_pdf_images:
                             pdf_images = extract_pdf_images(content)
                             if pdf_images:
                                 display_pdf_images(pdf_images, file.name)
-                                # PDF画像表示の直後に解析中メッセージを表示
-                                st.info(f"{file.name} を解析中...")
 
         records = []
         debug_details = []
@@ -2133,8 +2141,10 @@ if st.session_state.get("authentication_status"):
                                 if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
                                     st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
                                 
-                                # 解析完了メッセージを表示（PDF画像の上）
-                                st.success(f"{filename} の解析が完了しました")
+                                # 解析完了メッセージをプレースホルダーで表示
+                                if "pdf_status_placeholders" in st.session_state and filename in st.session_state.pdf_status_placeholders:
+                                    placeholder = st.session_state.pdf_status_placeholders[filename]
+                                    placeholder.success(f"**{filename}** の解析が完了しました")
                                 
                                 # 解析成功の末尾で必ず登録
                                 file_hash = f"{file.name}_{file.size}_{file.type}"
@@ -2801,18 +2811,20 @@ if st.session_state.get("authentication_status"):
             if dfrom:
                 if date_type == "登録日時":
                     where.append(f"{date_column} >= ?")
-                    params.append(f"{str(dfrom)} 00:00:00")
+                    params.append(f"{str(dfrom)}T00:00:00")
                 else:
+                    # 発注日・納品日はYYYY/MM/DD形式で保存されているため、スラッシュ形式に変換
                     where.append(f"{date_column} >= ?")
-                    params.append(str(dfrom))
+                    params.append(str(dfrom).replace('-', '/'))
             
             if dto:
                 if date_type == "登録日時":
-                    where.append(f"{date_column} < ?")
-                    params.append(f"{str(dto)} 23:59:59")
+                    where.append(f"{date_column} <= ?")
+                    params.append(f"{str(dto)}T23:59:59")
                 else:
-                    where.append(f"{date_column} < ?")
-                    params.append(str(dto))
+                    # 発注日・納品日はYYYY/MM/DD形式で保存されているため、スラッシュ形式に変換
+                    where.append(f"{date_column} <= ?")
+                    params.append(str(dto).replace('-', '/'))
             
             where_sql = " AND ".join(where)
             
@@ -2884,27 +2896,69 @@ if st.session_state.get("authentication_status"):
                         st.markdown("---")
                         st.subheader("📥 組織内集計Excelダウンロード")
                         
-                        # Excel生成
-                        output_org = io.BytesIO()
-                        with pd.ExcelWriter(output_org, engine='xlsxwriter') as writer:
-                            workbook = writer.book
-                            header_format = workbook.add_format({'bold': False, 'border': 0})
-                            
-                            # 罫線フォーマット
-                            border_format = workbook.add_format({
-                                'border': 1,
-                                'border_color': '#323232'
-                            })
-                            
-                            # 各シートに出力
-                            if not df_acc.empty:
-                                df_acc.to_excel(writer, index=False, sheet_name="アカウント別集計", startrow=1, header=False)
-                                worksheet1 = writer.sheets["アカウント別集計"]
-                                for col_num, value in enumerate(df_acc.columns.values):
-                                    worksheet1.write(0, col_num, value, header_format)
+                        # 全データ用の集計を取得（日付フィルターなし）
+                        q1_all = f"""
+                            SELECT account_name AS 'アカウント', COUNT(*) AS '行数', 
+                                   COALESCE(SUM(CAST(amount AS REAL)), 0) AS '金額合計'
+                            FROM order_lines
+                            WHERE company = ?
+                            GROUP BY account_name
+                            ORDER BY 金額合計 DESC
+                        """
+                        
+                        q2_all = f"""
+                            SELECT product_name AS '商品名', size AS 'サイズ', unit AS '単位',
+                                   COALESCE(SUM(CAST(quantity AS REAL)), 0) AS '数量合計', 
+                                   COALESCE(SUM(CAST(amount AS REAL)), 0) AS '金額合計'
+                            FROM order_lines
+                            WHERE company = ?
+                            GROUP BY product_name, size, unit
+                            ORDER BY 数量合計 DESC
+                        """
+                        
+                        q3_all = f"""
+                            SELECT partner_name AS '取引先名', COUNT(*) AS '行数', 
+                                   COALESCE(SUM(CAST(amount AS REAL)), 0) AS '金額合計'
+                            FROM order_lines
+                            WHERE company = ?
+                            GROUP BY partner_name
+                            ORDER BY 金額合計 DESC
+                        """
+                        
+                        try:
+                            df_acc_all = pd.DataFrame(c.execute(q1_all, [company]).fetchall(), 
+                                                    columns=['アカウント','行数','金額合計'])
+                            df_prd_all = pd.DataFrame(c.execute(q2_all, [company]).fetchall(), 
+                                                    columns=['商品名','サイズ','単位','数量合計','金額合計'])
+                            df_ptn_all = pd.DataFrame(c.execute(q3_all, [company]).fetchall(), 
+                                                    columns=['取引先名','行数','金額合計'])
+                        except Exception as e:
+                            st.error(f"全データ集計の取得エラー: {e}")
+                            df_acc_all = pd.DataFrame()
+                            df_prd_all = pd.DataFrame()
+                            df_ptn_all = pd.DataFrame()
+                        
+                        # Excel生成ヘルパー関数
+                        def build_org_summary_excel(df_acc, df_prd, df_ptn, suffix=""):
+                            output = io.BytesIO()
+                            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                                workbook = writer.book
+                                header_format = workbook.add_format({'bold': False, 'border': 0})
                                 
-                                # 罫線適用
+                                # 罫線フォーマット
+                                border_format = workbook.add_format({
+                                    'border': 1,
+                                    'border_color': '#323232'
+                                })
+                                
+                                # 各シートに出力
                                 if not df_acc.empty:
+                                    df_acc.to_excel(writer, index=False, sheet_name="アカウント別集計", startrow=1, header=False)
+                                    worksheet1 = writer.sheets["アカウント別集計"]
+                                    for col_num, value in enumerate(df_acc.columns.values):
+                                        worksheet1.write(0, col_num, value, header_format)
+                                    
+                                    # 罫線適用
                                     end_row = len(df_acc)
                                     end_col = len(df_acc.columns) - 1
                                     worksheet1.conditional_format(0, 0, end_row, end_col, {
@@ -2913,15 +2967,14 @@ if st.session_state.get("authentication_status"):
                                         'value': 0,
                                         'format': border_format
                                     })
-                            
-                            if not df_prd.empty:
-                                df_prd.to_excel(writer, index=False, sheet_name="商品別集計", startrow=1, header=False)
-                                worksheet2 = writer.sheets["商品別集計"]
-                                for col_num, value in enumerate(df_prd.columns.values):
-                                    worksheet2.write(0, col_num, value, header_format)
                                 
-                                # 罫線適用
                                 if not df_prd.empty:
+                                    df_prd.to_excel(writer, index=False, sheet_name="商品別集計", startrow=1, header=False)
+                                    worksheet2 = writer.sheets["商品別集計"]
+                                    for col_num, value in enumerate(df_prd.columns.values):
+                                        worksheet2.write(0, col_num, value, header_format)
+                                    
+                                    # 罫線適用
                                     end_row = len(df_prd)
                                     end_col = len(df_prd.columns) - 1
                                     worksheet2.conditional_format(0, 0, end_row, end_col, {
@@ -2930,15 +2983,14 @@ if st.session_state.get("authentication_status"):
                                         'value': 0,
                                         'format': border_format
                                     })
-                            
-                            if not df_ptn.empty:
-                                df_ptn.to_excel(writer, index=False, sheet_name="取引先別集計", startrow=1, header=False)
-                                worksheet3 = writer.sheets["取引先別集計"]
-                                for col_num, value in enumerate(df_ptn.columns.values):
-                                    worksheet3.write(0, col_num, value, header_format)
                                 
-                                # 罫線適用
                                 if not df_ptn.empty:
+                                    df_ptn.to_excel(writer, index=False, sheet_name="取引先別集計", startrow=1, header=False)
+                                    worksheet3 = writer.sheets["取引先別集計"]
+                                    for col_num, value in enumerate(df_ptn.columns.values):
+                                        worksheet3.write(0, col_num, value, header_format)
+                                    
+                                    # 罫線適用
                                     end_row = len(df_ptn)
                                     end_col = len(df_ptn.columns) - 1
                                     worksheet3.conditional_format(0, 0, end_row, end_col, {
@@ -2947,28 +2999,48 @@ if st.session_state.get("authentication_status"):
                                         'value': 0,
                                         'format': border_format
                                     })
+                                
+                                # 印刷設定
+                                for ws in [worksheet1, worksheet2, worksheet3]:
+                                    if ws:
+                                        ws.set_landscape()
+                                        ws.set_paper(9)
+                                        ws.fit_to_pages(1, 0)
+                                        ws.set_margins(left=0.3, right=0.3, top=0.5, bottom=0.5)
+                                        ws.repeat_rows(0, 0)
                             
-                            # 印刷設定
-                            for ws in [worksheet1, worksheet2, worksheet3]:
-                                if ws:
-                                    ws.set_landscape()
-                                    ws.set_paper(9)
-                                    ws.fit_to_pages(1, 0)
-                                    ws.set_margins(left=0.3, right=0.3, top=0.5, bottom=0.5)
-                                    ws.repeat_rows(0, 0)
+                            output.seek(0)
+                            return output
                         
-                        output_org.seek(0)
+                        # 2つのダウンロードボタン
+                        col1, col2 = st.columns(2)
                         
                         jst = pytz.timezone("Asia/Tokyo")
                         now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
                         
-                        st.download_button(
-                            label="組織内集計Excelをダウンロード",
-                            data=output_org,
-                            file_name=f"組織内集計_{company}_{now_str}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="download_org_summary"
-                        )
+                        with col1:
+                            # 検索結果のみダウンロード
+                            filtered_excel = build_org_summary_excel(df_acc, df_prd, df_ptn, "検索結果")
+                            st.download_button(
+                                label="🔽 検索結果をダウンロード",
+                                data=filtered_excel,
+                                file_name=f"組織内集計_検索結果_{company}_{now_str}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True,
+                                key="download_org_filtered"
+                            )
+                        
+                        with col2:
+                            # 全データダウンロード
+                            all_excel = build_org_summary_excel(df_acc_all, df_prd_all, df_ptn_all, "全データ")
+                            st.download_button(
+                                label="🔽 全データをダウンロード",
+                                data=all_excel,
+                                file_name=f"組織内集計_全データ_{company}_{now_str}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True,
+                                key="download_org_all"
+                            )
                 
                 except Exception as e:
                     st.error(f"集計データの取得エラー: {e}")
