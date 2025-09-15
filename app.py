@@ -1561,9 +1561,11 @@ if st.session_state.get("authentication_status"):
                 ok, msg, ts = save_text_order_data(username, in_customer, in_message, delivery_opt)
                 (st.success if ok else st.error)(msg)
                 if ok:
-                    # 入力欄をクリア
-                    st.session_state["txt_customer"] = ""
-                    st.session_state["txt_message"]  = ""
+                    # 入力欄をクリア（セッション状態を削除してから再実行）
+                    if "txt_customer" in st.session_state:
+                        del st.session_state["txt_customer"]
+                    if "txt_message" in st.session_state:
+                        del st.session_state["txt_message"]
                     st.rerun()
         
         # テキスト注文データの表示
