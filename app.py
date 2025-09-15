@@ -24,6 +24,175 @@ import tempfile
 import filelock
 from db import init_db, save_order_lines, list_batches, load_batch, get_batch_stats, DB_PATH, _conn
 
+# ========= Product Taxonomy (分類 + ソート) =========
+from dataclasses import dataclass
+from typing import List, Dict, Any
+import re
+from pathlib import Path
+
+# 並び順マスタ
+MAJOR_ORDER = {"野菜": 1, "果物": 2, "花": 3}
+SUB_ORDER = {
+    "野菜": {
+        "根もの": 1,
+        "葉もの": 2,
+        "果菜類（実を食べる野菜）": 3,
+        "きのこ類": 4,
+        "香味野菜": 5,
+        "その他": 6,
+    },
+    "果物": {
+        "柑橘類": 1,
+        "核果類": 2,
+        "仁果類（りんご・なし系）": 3,
+        "バナナ・熱帯果実": 4,
+        "ぶどう類": 5,
+        "いちご類": 6,
+        "その他": 7,
+    },
+    "花": {
+        "切花": 1,
+        "鉢花": 2,
+        "花木": 3,
+        "葉物・グリーン": 4,
+        "その他": 5,
+    },
+}
+
+# キャッシュ（Excel出力毎の再分類を削減）
+TAXONOMY_CACHE_PATH = Path("./taxonomy_cache.json")
+
+@dataclass
+class Taxonomy:
+    is_product: bool
+    major: str      # 野菜 / 果物 / 花 / その他
+    sub: str        # 中項目
+    canonical: str  # 正規化した商品名（表示用）
+    yomi: str       # ひらがな読み（並べ替え用）
+
+def _load_taxonomy_cache() -> Dict[str, Dict[str, Any]]:
+    if TAXONOMY_CACHE_PATH.exists():
+        try:
+            return json.load(open(TAXONOMY_CACHE_PATH, "r", encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+def _save_taxonomy_cache(cache: Dict[str, Dict[str, Any]]):
+    try:
+        json.dump(cache, open(TAXONOMY_CACHE_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+_CLEAN_PAT = re.compile(r"[［］\[\]（）\(\)【】]|[#※★☆♦︎•・/／｜|]")
+
+def _preclean(name: str) -> str:
+    s = str(name or "").strip()
+    s = _CLEAN_PAT.sub(" ", s)
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+def classify_products_with_openai(product_names: List[str], client, model: str = "gpt-4o-mini") -> Dict[str, Taxonomy]:
+    """
+    入力：任意の商品名配列
+    出力：分類結果（非商品も含む）
+    - キャッシュ済みは再問い合わせしない
+    - まとめて1リクエスト（バッチ）で問い合わせ
+    """
+    cache = _load_taxonomy_cache()
+    to_query = []
+    for raw in product_names:
+        key = raw or ""
+        if key not in cache:
+            to_query.append(key)
+
+    if to_query:
+        system = (
+            "あなたは日本の青果物・花の分類器です。"
+            "出力は必ずJSONのみ（説明文やコードブロックなし）。"
+            "対象は商品名欄に記載された文字列ですが、注意：非商品（例：小計、特売、（産地）やサイズだけの記述、注意書き等）も混在します。"
+            "各入力ごとに、以下の項目を決めてください：\n"
+            "- is_product: true/false（商品名と判断できる場合のみtrue）\n"
+            "- major: 野菜/果物/花/その他（非商品の場合は 'その他'）\n"
+            "- sub: 次の定義から1つだけ選ぶ。\n"
+            "  * 野菜: 根もの, 葉もの, 果菜類（実を食べる野菜）, きのこ類, 香味野菜, その他\n"
+            "  * 果物: 柑橘類, 核果類, 仁果類（りんご・なし系）, バナナ・熱帯果実, ぶどう類, いちご類, その他\n"
+            "  * 花: 切花, 鉢花, 花木, 葉物・グリーン, その他\n"
+            "- canonical: 一般的な商品名（例：'大根', 'にんじん', 'ぶどう', 'カスミソウ' など）。産地・サイズ・等級・記号は除去。\n"
+            "- yomi: canonical のひらがな読み（全角ひらがな）。\n"
+            "必須制約：入力配列と同じ順序の配列で返す。"
+        )
+        user = "以下を分類してください（配列で返す）：\n" + json.dumps(
+            [{"input": _preclean(x)} for x in to_query], ensure_ascii=False
+        )
+        resp = client.chat.completions.create(
+            model=model,
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        )
+        # 返却はJSON文字列想定
+        text = resp.choices[0].message.content.strip()
+        try:
+            results = json.loads(text)
+        except Exception:
+            # フォールバック：全て非商品扱いで末尾
+            results = [{"is_product": False, "major": "その他", "sub": "その他", "canonical": _preclean(x), "yomi": _preclean(x)} for x in to_query]
+
+        for raw, item in zip(to_query, results):
+            cache[raw] = item
+        _save_taxonomy_cache(cache)
+
+    out: Dict[str, Taxonomy] = {}
+    for raw in product_names:
+        obj = cache.get(raw) or {"is_product": False, "major": "その他", "sub": "その他", "canonical": _preclean(raw), "yomi": _preclean(raw)}
+        out[raw] = Taxonomy(
+            is_product=bool(obj.get("is_product", False)),
+            major=str(obj.get("major", "その他")),
+            sub=str(obj.get("sub", "その他")),
+            canonical=str(obj.get("canonical", _preclean(raw))),
+            yomi=str(obj.get("yomi", _preclean(raw))),
+        )
+    return out
+
+def attach_and_sort_by_taxonomy(df, client, drop_non_product: bool, secondary_keys: List[str] = None):
+    """
+    df: '商品名' 列を含む DataFrame
+    drop_non_product: Trueなら非商品行を除外、Falseなら末尾に回す
+    secondary_keys: 読みの後に安定ソートしたい列（例：['商品名','納品日','発注日']）
+    """
+    if df.empty or "商品名" not in df.columns:
+        return df
+
+    names = df["商品名"].fillna("").astype(str).tolist()
+    tax = classify_products_with_openai(list(dict.fromkeys(names)), client)  # unique順
+
+    # 付与
+    df = df.copy()
+    df["_is_product"] = df["商品名"].map(lambda x: tax.get(x, Taxonomy(False, "その他", "その他", str(x), str(x))).is_product)
+    df["_major"] = df["商品名"].map(lambda x: tax.get(x).major if x in tax else "その他")
+    df["_sub"]   = df["商品名"].map(lambda x: tax.get(x).sub   if x in tax else "その他")
+    df["_yomi"]  = df["商品名"].map(lambda x: tax.get(x).yomi  if x in tax else str(x))
+    df["_canon"] = df["商品名"].map(lambda x: tax.get(x).canonical if x in tax else str(x))
+
+    df["_major_rank"] = df["_major"].map(MAJOR_ORDER).fillna(99).astype(int)
+    df["_sub_rank"] = df.apply(lambda r: SUB_ORDER.get(r["_major"], {}).get(r["_sub"], 99), axis=1).astype(int)
+
+    sort_cols = ["_major_rank", "_sub_rank", "_yomi"]
+    if secondary_keys:
+        sort_cols += secondary_keys
+
+    df_sorted = df.sort_values(sort_cols, kind="mergesort")
+
+    if drop_non_product:
+        df_sorted = df_sorted[df_sorted["_is_product"] == True]
+
+    # 後工程に不要な内部列は戻す前に落とす（Excelに出したくない）
+    return df_sorted.drop(columns=["_is_product","_major","_sub","_yomi","_canon","_major_rank","_sub_rank"], errors="ignore")
+# ========= /Product Taxonomy =========
+
 # データ保存ディレクトリの統一（APP_DATA_DIRを使用）
 from config import load_config
 CONFIG = load_config()
@@ -2215,17 +2384,60 @@ if st.session_state.get("authentication_status"):
 
             edited_df["数量"] = pd.to_numeric(edited_df["数量"], errors="coerce").fillna(0)
 
-            df_sorted = edited_df.sort_values(
-                by=["商品名", "納品日", "発注日"], na_position="last"
-            )
-
-            df_agg = (
-                df_sorted
-                .groupby(["商品名", "サイズ", "備考", "単位"], dropna=False, as_index=False)
-                .agg({"数量": "sum"})
-            )
-            df_agg = df_agg[["商品名", "サイズ", "備考", "数量", "単位"]]
-            df_agg = df_agg.sort_values(by=["商品名"])
+            # OpenAIクライアントを取得
+            try:
+                from config import get_openai_api_key
+                import openai
+                api_key = get_openai_api_key()
+                if api_key:
+                    client = openai.OpenAI(api_key=api_key)
+                    
+                    # 注文一覧シートのソート（非商品は末尾に残す）
+                    df_sorted = attach_and_sort_by_taxonomy(
+                        edited_df,
+                        client=client,
+                        drop_non_product=False,        # 注文一覧は非商品も末尾に残す
+                        secondary_keys=["商品名", "納品日", "発注日"]
+                    )
+                    
+                    # 集計結果シートのソート（非商品は除外）
+                    df_agg = (
+                        df_sorted
+                        .groupby(["商品名", "サイズ", "備考", "単位"], dropna=False, as_index=False)
+                        .agg({"数量": "sum"})
+                    )
+                    df_agg = df_agg[["商品名", "サイズ", "備考", "数量", "単位"]]
+                    df_agg = attach_and_sort_by_taxonomy(
+                        df_agg,
+                        client=client,
+                        drop_non_product=True,         # 集計は非商品を除外
+                        secondary_keys=["商品名"]
+                    )
+                else:
+                    # APIキーがない場合は従来のソート
+                    df_sorted = edited_df.sort_values(
+                        by=["商品名", "納品日", "発注日"], na_position="last"
+                    )
+                    df_agg = (
+                        df_sorted
+                        .groupby(["商品名", "サイズ", "備考", "単位"], dropna=False, as_index=False)
+                        .agg({"数量": "sum"})
+                    )
+                    df_agg = df_agg[["商品名", "サイズ", "備考", "数量", "単位"]]
+                    df_agg = df_agg.sort_values(by=["商品名"])
+            except Exception as e:
+                # エラー時は従来のソート
+                st.warning(f"商品分類ソートでエラーが発生しました。従来のソートを使用します: {e}")
+                df_sorted = edited_df.sort_values(
+                    by=["商品名", "納品日", "発注日"], na_position="last"
+                )
+                df_agg = (
+                    df_sorted
+                    .groupby(["商品名", "サイズ", "備考", "単位"], dropna=False, as_index=False)
+                    .agg({"数量": "sum"})
+                )
+                df_agg = df_agg[["商品名", "サイズ", "備考", "数量", "単位"]]
+                df_agg = df_agg.sort_values(by=["商品名"])
             output = io.BytesIO()
             jst = pytz.timezone("Asia/Tokyo")
             now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
@@ -2870,6 +3082,24 @@ if st.session_state.get("authentication_status"):
                     df_ptn = pd.DataFrame(c.execute(q3, params).fetchall(), 
                                         columns=['取引先名','行数','金額合計'])
                     
+                    # 商品別集計のソートを修正（OpenAI分類を使用）
+                    if not df_prd.empty:
+                        try:
+                            from config import get_openai_api_key
+                            import openai
+                            api_key = get_openai_api_key()
+                            if api_key:
+                                client = openai.OpenAI(api_key=api_key)
+                                df_prd = attach_and_sort_by_taxonomy(
+                                    df_prd,
+                                    client=client,
+                                    drop_non_product=True,         # 集計は非商品を除外
+                                    secondary_keys=["商品名"]
+                                )
+                        except Exception as e:
+                            # エラー時は従来のソート（数量降順）
+                            df_prd = df_prd.sort_values(by=["数量合計"], ascending=False)
+                    
                     # アカウント別集計
                     st.markdown("### 📊 アカウント別集計")
                     if not df_acc.empty:
@@ -2932,6 +3162,24 @@ if st.session_state.get("authentication_status"):
                                                     columns=['商品名','サイズ','単位','数量合計','金額合計'])
                             df_ptn_all = pd.DataFrame(c.execute(q3_all, [company]).fetchall(), 
                                                     columns=['取引先名','行数','金額合計'])
+                            
+                            # 全データ用の商品別集計のソートを修正（OpenAI分類を使用）
+                            if not df_prd_all.empty:
+                                try:
+                                    from config import get_openai_api_key
+                                    import openai
+                                    api_key = get_openai_api_key()
+                                    if api_key:
+                                        client = openai.OpenAI(api_key=api_key)
+                                        df_prd_all = attach_and_sort_by_taxonomy(
+                                            df_prd_all,
+                                            client=client,
+                                            drop_non_product=True,         # 集計は非商品を除外
+                                            secondary_keys=["商品名"]
+                                        )
+                                except Exception as e:
+                                    # エラー時は従来のソート（数量降順）
+                                    df_prd_all = df_prd_all.sort_values(by=["数量合計"], ascending=False)
                         except Exception as e:
                             st.error(f"全データ集計の取得エラー: {e}")
                             df_acc_all = pd.DataFrame()
