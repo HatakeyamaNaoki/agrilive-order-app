@@ -1941,6 +1941,12 @@ if st.session_state.get("authentication_status"):
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 workbook = writer.book
                 header_format = workbook.add_format({'bold': False, 'border': 0})
+                
+                # 罫線フォーマット（薄い黒 RGB:50,50,50）
+                border_format = workbook.add_format({
+                    'border': 1,
+                    'border_color': '#323232'  # RGB(50,50,50)を16進数で
+                })
 
                 # ▼ 注文一覧シート
                 sheet1 = "注文一覧"
@@ -1973,6 +1979,22 @@ if st.session_state.get("authentication_status"):
                     except AttributeError:
                         ws.set_column(c, c, round((px - 5) / 7, 2))  # フォールバック：概算（px→文字幅）
 
+                # ヘルパー：表全体に罫線を適用
+                def _apply_borders(ws, df, start_row=0):
+                    """データフレームの範囲に罫線を適用"""
+                    if df.empty:
+                        return
+                    # データの範囲を取得（ヘッダー行 + データ行）
+                    end_row = start_row + len(df)
+                    end_col = len(df.columns) - 1
+                    # 罫線を適用
+                    ws.conditional_format(start_row, 0, end_row, end_col, {
+                        'type': 'cell',
+                        'criteria': '>=',
+                        'value': 0,
+                        'format': border_format
+                    })
+
                 # === 列幅設定 ===
                 # 注文一覧
                 cols1 = list(edited_df.columns)
@@ -1995,6 +2017,11 @@ if st.session_state.get("authentication_status"):
                 idx3  = {v: i for i, v in enumerate(cols3)}
                 _set_px(worksheet3, idx3, "商品名", 244)
                 _set_px(worksheet3, idx3, "備考",   244)
+
+                # === 罫線適用 ===
+                _apply_borders(worksheet1, edited_df, 0)    # 注文一覧
+                _apply_borders(worksheet2, df_sorted, 0)    # 注文一覧(層別結果)
+                _apply_borders(worksheet3, df_agg, 0)       # 集計結果
 
                 # === 印刷設定（横1ページに収める） ===
                 for ws in (worksheet1, worksheet2, worksheet3):
@@ -2284,6 +2311,12 @@ if st.session_state.get("authentication_status"):
                 workbook = writer.book
                 header_format = workbook.add_format({'bold': False, 'border': 0})
                 
+                # 罫線フォーマット（薄い黒 RGB:50,50,50）
+                border_format = workbook.add_format({
+                    'border': 1,
+                    'border_color': '#323232'  # RGB(50,50,50)を16進数で
+                })
+                
                 # 注文一覧シート
                 df_all.to_excel(writer, index=False, sheet_name="全注文履歴", startrow=1, header=False)
                 worksheet = writer.sheets["全注文履歴"]
@@ -2301,6 +2334,22 @@ if st.session_state.get("authentication_status"):
                     except KeyError:
                         pass
 
+                # ヘルパー：表全体に罫線を適用
+                def _apply_borders(ws, df, start_row=0):
+                    """データフレームの範囲に罫線を適用"""
+                    if df.empty:
+                        return
+                    # データの範囲を取得（ヘッダー行 + データ行）
+                    end_row = start_row + len(df)
+                    end_col = len(df.columns) - 1
+                    # 罫線を適用
+                    ws.conditional_format(start_row, 0, end_row, end_col, {
+                        'type': 'cell',
+                        'criteria': '>=',
+                        'value': 0,
+                        'format': border_format
+                    })
+
                 colsH = list(df_all.columns)
                 idxH  = {v: i for i, v in enumerate(colsH)}
                 wsH   = worksheet  # 既存の "全注文履歴" ワークシート
@@ -2309,6 +2358,9 @@ if st.session_state.get("authentication_status"):
                 _set_px(wsH, idxH, "納品日", 105)
                 _set_px(wsH, idxH, "商品名", 244)
                 _set_px(wsH, idxH, "備考",   244)
+
+                # === 罫線適用 ===
+                _apply_borders(wsH, df_all, 0)  # 全注文履歴
 
                 wsH.set_landscape()
                 wsH.set_paper(9)
