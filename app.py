@@ -2170,69 +2170,6 @@ if st.session_state.get("authentication_status"):
                 latest_date = df_all['登録日時'].iloc[0] if not df_all.empty else "なし"
                 st.metric("最新登録", latest_date)
             
-            # 全データ削除機能
-            st.markdown("---")
-            st.subheader("⚠️ 全データ削除")
-            
-            # 全削除用セッション状態
-            if "confirm_delete_all" not in st.session_state:
-                st.session_state.confirm_delete_all = False
-            
-            if not st.session_state.confirm_delete_all:
-                st.warning("⚠️ **危険な操作**: この操作は全てのデータを完全に削除します。復元はできません。")
-                col1, col2 = st.columns([1, 3])
-                with col1:
-                    if st.button("🗑️ 全データ削除", type="secondary", key="delete_all_btn"):
-                        st.session_state.confirm_delete_all = True
-                        st.rerun()
-                with col2:
-                    st.info("削除対象: 全注文データ + 全バッチ情報")
-            else:
-                st.error("⚠️ **最終確認**: 本当に全てのデータを削除しますか？")
-                st.warning(f"削除対象: {len(df_all)}行の注文データ + {unique_batches}個のバッチ")
-                
-                col1, col2, col3 = st.columns([1, 1, 2])
-                with col1:
-                    if st.button("✅ 削除実行", type="primary", key="confirm_delete_all_btn"):
-                        try:
-                            with _conn() as c:
-                                # トランザクションで安全に削除
-                                c.execute("BEGIN TRANSACTION")
-                                try:
-                                    # 全注文データを削除
-                                    c.execute("DELETE FROM order_lines")
-                                    deleted_rows = c.rowcount
-                                    
-                                    # 全バッチ情報を削除
-                                    c.execute("DELETE FROM batches")
-                                    deleted_batches = c.rowcount
-                                    
-                                    # コミット
-                                    c.execute("COMMIT")
-                                    
-                                    st.success(f"✅ 全データを削除しました（{deleted_rows}行の注文データ + {deleted_batches}個のバッチ）")
-                                    st.info("ページを再読み込みして最新状態を確認してください。")
-                                    
-                                except Exception as e:
-                                    # エラー時はロールバック
-                                    c.execute("ROLLBACK")
-                                    raise e
-                                    
-                        except Exception as e:
-                            st.error(f"削除エラー: {e}")
-                        finally:
-                            st.session_state.confirm_delete_all = False
-                            st.rerun()
-                
-                with col2:
-                    if st.button("❌ キャンセル", key="cancel_delete_all_btn"):
-                        st.session_state.confirm_delete_all = False
-                        st.info("削除をキャンセルしました")
-                        st.rerun()
-                
-                with col3:
-                    st.info("この操作は取り消せません")
-            
             # データ表示（編集不可、ID列は非表示）
             df_display = df_all.drop('id', axis=1)  # ID列を非表示
             st.dataframe(df_display, use_container_width=True, hide_index=True)
@@ -2440,6 +2377,67 @@ if st.session_state.get("authentication_status"):
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="download_all_history"
             )
+            
+            # 全データ削除機能
+            st.markdown("---")
+            
+            # 全削除用セッション状態
+            if "confirm_delete_all" not in st.session_state:
+                st.session_state.confirm_delete_all = False
+            
+            if not st.session_state.confirm_delete_all:
+                col1, col2 = st.columns([1, 3])
+                with col1:
+                    if st.button("🗑️ 全データ削除", type="secondary", key="delete_all_btn"):
+                        st.session_state.confirm_delete_all = True
+                        st.rerun()
+                with col2:
+                    st.info("全注文データと全バッチ情報を削除します")
+            else:
+                st.error("⚠️ **最終確認**: 本当に全てのデータを削除しますか？")
+                st.warning(f"削除対象: {len(df_all)}行の注文データ + {unique_batches}個のバッチ")
+                
+                col1, col2, col3 = st.columns([1, 1, 2])
+                with col1:
+                    if st.button("✅ 削除実行", type="primary", key="confirm_delete_all_btn"):
+                        try:
+                            with _conn() as c:
+                                # トランザクションで安全に削除
+                                c.execute("BEGIN TRANSACTION")
+                                try:
+                                    # 全注文データを削除
+                                    c.execute("DELETE FROM order_lines")
+                                    deleted_rows = c.rowcount
+                                    
+                                    # 全バッチ情報を削除
+                                    c.execute("DELETE FROM batches")
+                                    deleted_batches = c.rowcount
+                                    
+                                    # コミット
+                                    c.execute("COMMIT")
+                                    
+                                    st.success(f"✅ 全データを削除しました（{deleted_rows}行の注文データ + {deleted_batches}個のバッチ）")
+                                    st.info("ページを再読み込みして最新状態を確認してください。")
+                                    
+                                except Exception as e:
+                                    # エラー時はロールバック
+                                    c.execute("ROLLBACK")
+                                    raise e
+                                    
+                        except Exception as e:
+                            st.error(f"削除エラー: {e}")
+                        finally:
+                            st.session_state.confirm_delete_all = False
+                            st.rerun()
+                
+                with col2:
+                    if st.button("❌ キャンセル", key="cancel_delete_all_btn"):
+                        st.session_state.confirm_delete_all = False
+                        st.info("削除をキャンセルしました")
+                        st.rerun()
+                
+                with col3:
+                    st.info("この操作は取り消せません")
 
 elif st.session_state.get("authentication_status") is False:
     st.error("ユーザー名またはパスワードが正しくありません。")
