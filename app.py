@@ -643,6 +643,110 @@ def get_all_users():
         print(f"ユーザー情報取得エラー: {e}")
         return []
 
+def add_user_to_yaml(email, password, name, company):
+    """新規ユーザーをYAMLに追加"""
+    try:
+        with get_file_lock(str(LOCK_PATH)):
+            cfg = load_credentials_from_yaml()
+            
+            # 既存ユーザーチェック
+            if email in cfg['credentials']['usernames']:
+                return False, "このメールアドレスは既に登録されています"
+            
+            # 新規ユーザー追加
+            cfg['credentials']['usernames'][email] = {
+                'name': name,
+                'company': company,
+                'created_date': datetime.now().strftime('%Y/%m/%d')
+            }
+            
+            # パスワードをハッシュ化して追加
+            hashed_password = stauth.Hasher([password]).generate()[0]
+            cfg['credentials']['passwords'][email] = hashed_password
+            
+            # YAMLファイルに保存
+            with open(CRED_PATH, 'w', encoding='utf-8') as f:
+                yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
+            
+            return True, "ユーザーを追加しました"
+    except Exception as e:
+        return False, f"ユーザー追加エラー: {e}"
+
+def update_user_in_yaml(email, name, company):
+    """既存ユーザー情報を更新"""
+    try:
+        with get_file_lock(str(LOCK_PATH)):
+            cfg = load_credentials_from_yaml()
+            
+            # ユーザー存在チェック
+            if email not in cfg['credentials']['usernames']:
+                return False, "ユーザーが見つかりません"
+            
+            # 基本ユーザーは編集不可
+            if email in BASIC_USERS:
+                return False, "基本ユーザーは編集できません"
+            
+            # ユーザー情報更新
+            cfg['credentials']['usernames'][email]['name'] = name
+            cfg['credentials']['usernames'][email]['company'] = company
+            
+            # YAMLファイルに保存
+            with open(CRED_PATH, 'w', encoding='utf-8') as f:
+                yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
+            
+            return True, "ユーザー情報を更新しました"
+    except Exception as e:
+        return False, f"ユーザー更新エラー: {e}"
+
+def delete_user_from_yaml(email):
+    """ユーザーをYAMLから削除"""
+    try:
+        with get_file_lock(str(LOCK_PATH)):
+            cfg = load_credentials_from_yaml()
+            
+            # ユーザー存在チェック
+            if email not in cfg['credentials']['usernames']:
+                return False, "ユーザーが見つかりません"
+            
+            # 基本ユーザーは削除不可
+            if email in BASIC_USERS:
+                return False, "基本ユーザーは削除できません"
+            
+            # ユーザー削除
+            del cfg['credentials']['usernames'][email]
+            if email in cfg['credentials']['passwords']:
+                del cfg['credentials']['passwords'][email]
+            
+            # YAMLファイルに保存
+            with open(CRED_PATH, 'w', encoding='utf-8') as f:
+                yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
+            
+            return True, "ユーザーを削除しました"
+    except Exception as e:
+        return False, f"ユーザー削除エラー: {e}"
+
+def change_user_password(email, new_password):
+    """ユーザーのパスワードを変更"""
+    try:
+        with get_file_lock(str(LOCK_PATH)):
+            cfg = load_credentials_from_yaml()
+            
+            # ユーザー存在チェック
+            if email not in cfg['credentials']['usernames']:
+                return False, "ユーザーが見つかりません"
+            
+            # パスワードをハッシュ化して更新
+            hashed_password = stauth.Hasher([new_password]).generate()[0]
+            cfg['credentials']['passwords'][email] = hashed_password
+            
+            # YAMLファイルに保存
+            with open(CRED_PATH, 'w', encoding='utf-8') as f:
+                yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
+            
+            return True, "パスワードを変更しました"
+    except Exception as e:
+        return False, f"パスワード変更エラー: {e}"
+
 def load_docx_html(filepath):
     doc = Document(filepath)
     html = ""
@@ -1109,6 +1213,23 @@ if st.session_state.get("authentication_status"):
             # ユーザー一覧
             st.subheader("👥 ユーザー一覧")
             
+            # ユーザー管理用セッション状態
+            if "show_add_user" not in st.session_state:
+                st.session_state.show_add_user = False
+            if "editing_user" not in st.session_state:
+                st.session_state.editing_user = None
+            if "deleting_user" not in st.session_state:
+                st.session_state.deleting_user = None
+            
+            # ユーザー管理ボタン
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("➕ 新規ユーザー追加", type="primary"):
+                    st.session_state.show_add_user = True
+                    st.session_state.editing_user = None
+                    st.session_state.deleting_user = None
+                    st.rerun()
+            
             if all_users:
                 # DataFrameに変換（ユーザータイプ列を削除）
                 df_users = pd.DataFrame(all_users)
@@ -1129,8 +1250,145 @@ if st.session_state.get("authentication_status"):
                     file_name=f"ユーザー一覧_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv"
                 )
+                
+                # ユーザー編集・削除機能
+                st.subheader("✏️ ユーザー編集・削除")
+                
+                # ユーザー選択
+                user_emails = [user["email"] for user in all_users if user["email"] not in BASIC_USERS]
+                if user_emails:
+                    selected_email = st.selectbox("編集・削除するユーザーを選択", user_emails)
+                    
+                    if selected_email:
+                        # 選択されたユーザーの情報を取得
+                        selected_user = next(user for user in all_users if user["email"] == selected_email)
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("✏️ 編集", key=f"edit_{selected_email}"):
+                                st.session_state.editing_user = selected_email
+                                st.session_state.show_add_user = False
+                                st.session_state.deleting_user = None
+                                st.rerun()
+                        
+                        with col2:
+                            if st.button("🗑️ 削除", key=f"delete_{selected_email}"):
+                                st.session_state.deleting_user = selected_email
+                                st.session_state.show_add_user = False
+                                st.session_state.editing_user = None
+                                st.rerun()
+                else:
+                    st.info("編集可能なユーザーがありません（基本ユーザーのみ）")
             else:
                 st.info("ユーザーが登録されていません。")
+            
+            # 新規ユーザー追加フォーム
+            if st.session_state.show_add_user:
+                st.markdown("---")
+                st.subheader("➕ 新規ユーザー追加")
+                
+                with st.form("add_user_form"):
+                    new_email = st.text_input("メールアドレス", key="new_email")
+                    new_password = st.text_input("パスワード", type="password", key="new_password")
+                    new_name = st.text_input("お名前", key="new_name")
+                    new_company = st.text_input("会社名", key="new_company")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        submit_add = st.form_submit_button("追加", type="primary")
+                    with col2:
+                        cancel_add = st.form_submit_button("キャンセル")
+                    
+                    if submit_add:
+                        if new_email and new_password and new_name:
+                            success, message = add_user_to_yaml(new_email, new_password, new_name, new_company)
+                            if success:
+                                st.success(message)
+                                st.session_state.show_add_user = False
+                                st.rerun()
+                            else:
+                                st.error(message)
+                        else:
+                            st.error("メールアドレス、パスワード、お名前は必須です")
+                    
+                    if cancel_add:
+                        st.session_state.show_add_user = False
+                        st.rerun()
+            
+            # ユーザー編集フォーム
+            if st.session_state.editing_user:
+                st.markdown("---")
+                st.subheader("✏️ ユーザー編集")
+                
+                # 編集対象ユーザーの情報を取得
+                edit_user = next(user for user in all_users if user["email"] == st.session_state.editing_user)
+                
+                with st.form("edit_user_form"):
+                    st.text_input("メールアドレス", value=edit_user["email"], disabled=True, key="edit_email")
+                    edit_name = st.text_input("お名前", value=edit_user["name"], key="edit_name")
+                    edit_company = st.text_input("会社名", value=edit_user["company"], key="edit_company")
+                    new_password = st.text_input("新しいパスワード（変更する場合のみ）", type="password", key="edit_password")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        submit_edit = st.form_submit_button("更新", type="primary")
+                    with col2:
+                        cancel_edit = st.form_submit_button("キャンセル")
+                    
+                    if submit_edit:
+                        if edit_name:
+                            # ユーザー情報更新
+                            success, message = update_user_in_yaml(edit_user["email"], edit_name, edit_company)
+                            if success:
+                                st.success(message)
+                                
+                                # パスワード変更
+                                if new_password:
+                                    success_pw, message_pw = change_user_password(edit_user["email"], new_password)
+                                    if success_pw:
+                                        st.success(message_pw)
+                                    else:
+                                        st.error(message_pw)
+                                
+                                st.session_state.editing_user = None
+                                st.rerun()
+                            else:
+                                st.error(message)
+                        else:
+                            st.error("お名前は必須です")
+                    
+                    if cancel_edit:
+                        st.session_state.editing_user = None
+                        st.rerun()
+            
+            # ユーザー削除確認
+            if st.session_state.deleting_user:
+                st.markdown("---")
+                st.subheader("🗑️ ユーザー削除確認")
+                
+                delete_user = next(user for user in all_users if user["email"] == st.session_state.deleting_user)
+                
+                st.error(f"⚠️ 本当に以下のユーザーを削除しますか？")
+                st.warning(f"**メールアドレス**: {delete_user['email']}")
+                st.warning(f"**お名前**: {delete_user['name']}")
+                st.warning(f"**会社名**: {delete_user['company']}")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✅ 削除実行", type="primary", key="confirm_delete_user"):
+                        success, message = delete_user_from_yaml(delete_user["email"])
+                        if success:
+                            st.success(message)
+                        else:
+                            st.error(message)
+                        st.session_state.deleting_user = None
+                        st.rerun()
+                
+                with col2:
+                    if st.button("❌ キャンセル", key="cancel_delete_user"):
+                        st.session_state.deleting_user = None
+                        st.info("削除をキャンセルしました")
+                        st.rerun()
             
             # LINE注文データ情報
             st.subheader("📱 LINE注文データ情報")
