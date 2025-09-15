@@ -1560,6 +1560,8 @@ if st.session_state.get("authentication_status"):
                             pdf_images = extract_pdf_images(content)
                             if pdf_images:
                                 display_pdf_images(pdf_images, file.name)
+                                # PDF画像表示の直後に解析中メッセージを表示
+                                st.info(f"{file.name} を解析中...")
 
         records = []
         debug_details = []
@@ -2114,9 +2116,6 @@ if st.session_state.get("authentication_status"):
                             
                             # PDF解析の実行
                             try:
-                                # 解析中メッセージを表示（PDF画像の下）
-                                st.info(f"{filename} を解析中...")
-                                
                                 # APIキーの事前確認
                                 try:
                                     from config import get_openai_api_key
@@ -2467,6 +2466,12 @@ if st.session_state.get("authentication_status"):
         else:
             df_all = pd.DataFrame(rows, columns=cols)
             
+            # 登録日時の表示形式を修正（2025-09-15T07:27:18 → 2025/09/15）
+            if '登録日時' in df_all.columns:
+                df_all['登録日時'] = df_all['登録日時'].apply(
+                    lambda x: x.split('T')[0].replace('-', '/') if x and 'T' in str(x) else x
+                )
+            
             # 統計情報
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -2766,6 +2771,16 @@ if st.session_state.get("authentication_status"):
             st.info(f"**対象会社**: {company}")
             
             # 期間フィルター
+            st.markdown("#### 📅 期間フィルター")
+            
+            # 日付タイプ選択
+            date_type = st.radio(
+                "検索対象の日付を選択してください:",
+                ["発注日", "納品日", "登録日時"],
+                horizontal=True,
+                key="org_date_type"
+            )
+            
             col1, col2 = st.columns(2)
             with col1:
                 dfrom = st.date_input("開始日", value=None, format="YYYY-MM-DD")
@@ -2775,12 +2790,29 @@ if st.session_state.get("authentication_status"):
             # 期間条件を組み立て
             where = ["company = ?"]
             params = [company]
+            
+            if date_type == "発注日":
+                date_column = "order_date"
+            elif date_type == "納品日":
+                date_column = "delivery_date"
+            else:  # 登録日時
+                date_column = "created_at"
+            
             if dfrom:
-                where.append("(order_date >= ? OR (order_date IS NULL AND created_at >= ?))")
-                params += [str(dfrom), f"{str(dfrom)} 00:00:00"]
+                if date_type == "登録日時":
+                    where.append(f"{date_column} >= ?")
+                    params.append(f"{str(dfrom)} 00:00:00")
+                else:
+                    where.append(f"{date_column} >= ?")
+                    params.append(str(dfrom))
+            
             if dto:
-                where.append("(order_date < ?  OR (order_date IS NULL AND created_at < ?))")
-                params += [str(dto), f"{str(dto)} 23:59:59"]
+                if date_type == "登録日時":
+                    where.append(f"{date_column} < ?")
+                    params.append(f"{str(dto)} 23:59:59")
+                else:
+                    where.append(f"{date_column} < ?")
+                    params.append(str(dto))
             
             where_sql = " AND ".join(where)
             
