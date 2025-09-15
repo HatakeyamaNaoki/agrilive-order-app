@@ -1551,8 +1551,6 @@ if st.session_state.get("authentication_status"):
                     new_files.append(file)
             
             if new_files:
-                st.info(f"新しいファイル {len(new_files)} 件を解析します")
-                
                 # PDFファイルの画像表示と内容保存
                 for file in new_files:
                     if file.name.lower().endswith(".pdf"):
@@ -2116,23 +2114,27 @@ if st.session_state.get("authentication_status"):
                             
                             # PDF解析の実行
                             try:
-                                with st.spinner(f"{filename} を解析中..."):
-                                    # APIキーの事前確認
-                                    try:
-                                        from config import get_openai_api_key
-                                        api_key = get_openai_api_key()
-                                        if not api_key:
-                                            st.error("OpenAI APIキーが設定されていません")
-                                            continue
-                                    except Exception as api_error:
-                                        st.error(f"APIキー取得エラー: {api_error}")
+                                # 解析中メッセージを表示（PDF画像の下）
+                                st.info(f"{filename} を解析中...")
+                                
+                                # APIキーの事前確認
+                                try:
+                                    from config import get_openai_api_key
+                                    api_key = get_openai_api_key()
+                                    if not api_key:
+                                        st.error("OpenAI APIキーが設定されていません")
                                         continue
-                                    
-                                    pdf_records = parse_pdf_handwritten(content, filename)
-                                    records += pdf_records
-                                    # 商品情報の抽出状況を確認
-                                    if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
-                                        st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
+                                except Exception as api_error:
+                                    st.error(f"APIキー取得エラー: {api_error}")
+                                    continue
+                                
+                                pdf_records = parse_pdf_handwritten(content, filename)
+                                records += pdf_records
+                                # 商品情報の抽出状況を確認
+                                if pdf_records and pdf_records[0].get('product_name') == "商品情報なし":
+                                    st.warning("商品情報の抽出に失敗しました。手書き文字の認識精度を確認してください。")
+                                
+                                # 解析完了メッセージを表示（PDF画像の上）
                                 st.success(f"{filename} の解析が完了しました")
                                 
                                 # 解析成功の末尾で必ず登録
