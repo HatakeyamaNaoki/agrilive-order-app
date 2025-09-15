@@ -10,6 +10,7 @@ from parser_iporter import parse_iporter
 from parser_mitsubishi import parse_mitsubishi
 from parser_pdf import parse_pdf_handwritten
 from prompt_line import get_line_order_prompt
+from prompt_text import get_text_order_prompt
 from docx import Document
 import pdfplumber
 from PIL import Image
@@ -27,6 +28,11 @@ from db import init_db, save_order_lines, list_batches, load_batch, get_batch_st
 LINE_ORDERS_DIR = "line_orders"
 if not os.path.exists(LINE_ORDERS_DIR):
     os.makedirs(LINE_ORDERS_DIR, exist_ok=True)
+
+# テキスト注文データ管理用のディレクトリ
+TEXT_ORDERS_DIR = "text_orders"
+if not os.path.exists(TEXT_ORDERS_DIR):
+    os.makedirs(TEXT_ORDERS_DIR, exist_ok=True)
 
 # --- 認証情報ファイル管理 ---
 APP_DIR = Path(__file__).resolve().parent
@@ -317,6 +323,174 @@ def delete_line_order_by_timestamp(timestamp):
         return True, f"データを削除しました"
     except Exception as e:
         return False, f"削除エラー: {e}"
+
+# テキスト注文データ管理関数群
+def _text_orders_file():
+    """テキスト注文データファイルのパスを取得"""
+    return os.path.join(TEXT_ORDERS_DIR, "orders.json")
+
+def save_text_order_data(account, customer_name, message_text, delivery_date_opt=None):
+    """
+    テキスト注文データを保存
+    """
+    try:
+        jst = timezone(timedelta(hours=9))
+        now = datetime.now(jst)
+        order_date = now.strftime("%Y/%m/%d")
+        ts = now.strftime("%Y%m%d_%H%M%S_%f")
+
+        data = {
+            "account": account,
+            "customer_name": customer_name.strip(),
+            "message_text": message_text.strip(),
+            "order_date": order_date,
+            "delivery_date_opt": delivery_date_opt or "",
+            "timestamp": ts,
+            "processed": False,
+            "parsed_data": None
+        }
+
+        path = _text_orders_file()
+        with get_file_lock(path):
+            arr = []
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    arr = json.load(f)
+            arr.append(data)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(arr, f, ensure_ascii=False, indent=4)
+        return True, "テキスト注文を保存しました。", ts
+    except Exception as e:
+        return False, f"テキスト注文保存エラー: {e}", None
+
+def get_text_orders_for_user(account):
+    """
+    ユーザーに関連するテキスト注文データを取得
+    """
+    try:
+        path = _text_orders_file()
+        if not os.path.exists(path):
+            return []
+        with open(path, "r", encoding="utf-8") as f:
+            all_ = json.load(f)
+        return [o for o in all_ if o.get("account") == account]
+    except Exception as e:
+        print(f"get_text_orders_for_user error: {e}")
+        return []
+
+def save_parsed_text_order_data(timestamp, parsed):
+    """
+    テキスト注文の解析結果を保存
+    """
+    try:
+        path = _text_orders_file()
+        if not os.path.exists(path):
+            return False, "データファイルがありません"
+        with get_file_lock(path):
+            with open(path, "r", encoding="utf-8") as f:
+                arr = json.load(f)
+            updated = False
+            for o in arr:
+                if o["timestamp"] == timestamp and not o.get("processed", False):
+                    o["parsed_data"] = parsed
+                    o["processed"] = True
+                    updated = True
+                    break
+            if not updated:
+                # 念のため二段階目（同timestamp強制更新）
+                for o in arr:
+                    if o["timestamp"] == timestamp:
+                        o["parsed_data"] = parsed
+                        o["processed"] = True
+                        updated = True
+                        break
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(arr, f, ensure_ascii=False, indent=4)
+        return True, "解析結果を保存しました"
+    except Exception as e:
+        return False, f"解析結果保存エラー: {e}"
+
+def delete_text_order_by_timestamp(timestamp):
+    """
+    指定されたタイムスタンプのテキスト注文データを削除
+    """
+    try:
+        path = _text_orders_file()
+        if not os.path.exists(path):
+            return False, "データファイルがありません"
+        with get_file_lock(path):
+            with open(path, "r", encoding="utf-8") as f:
+                arr = json.load(f)
+            new_arr = [o for o in arr if o["timestamp"] != timestamp]
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(new_arr, f, ensure_ascii=False, indent=4)
+        return True, "データを削除しました"
+    except Exception as e:
+        return False, f"削除エラー: {e}"
+
+def delete_processed_text_orders():
+    """
+    処理済みのテキスト注文データを削除
+    """
+    try:
+        path = _text_orders_file()
+        if not os.path.exists(path):
+            return True, "削除対象なし"
+        with get_file_lock(path):
+            with open(path, "r", encoding="utf-8") as f:
+                arr = json.load(f)
+            remain = [o for o in arr if not o.get("processed", False)]
+            deleted = len(arr) - len(remain)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(remain, f, ensure_ascii=False, indent=4)
+        return True, f"{deleted}件の処理済みテキストを削除しました"
+    except Exception as e:
+        return False, f"削除エラー: {e}"
+
+def parse_text_order_with_openai(customer_name, message_text, order_date, delivery_date_override=""):
+    """
+    OpenAI APIを使用してテキスト注文を解析
+    """
+    try:
+        api_key = get_openai_api_key()
+        if not api_key:
+            raise Exception("OPENAI_API_KEYが設定されていません")
+        
+        import openai
+        client = openai.OpenAI(api_key=api_key)
+
+        system_prompt = get_text_order_prompt()
+        user_text = (
+            f"顧客名: {customer_name}\n"
+            f"受信日(基準日): {order_date}\n"
+            f"本文:\n{message_text}\n"
+            "上記を解析して構造化JSONで返してください。"
+        )
+
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role":"system","content":system_prompt},
+                      {"role":"user","content":user_text}],
+            max_tokens=2000,
+            temperature=0.1
+        )
+        content = resp.choices[0].message.content.strip()
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.endswith("```"):
+            content = content[:-3]
+        parsed = json.loads(content)
+
+        # 最低限の補正（発注日/納品日）
+        if not parsed.get("order_date"):
+            parsed["order_date"] = order_date
+        if delivery_date_override:
+            parsed["delivery_date"] = delivery_date_override
+        if not parsed.get("partner_name"):
+            parsed["partner_name"] = customer_name
+        return parsed
+    except Exception as e:
+        raise Exception(f"テキスト注文解析エラー: {e}")
 
 def parse_line_order_with_openai(image_path, sender_name, message_text="", order_date=""):
     """
@@ -1361,6 +1535,69 @@ if st.session_state.get("authentication_status"):
                 st.info("未処理のLINE注文はありません。")
         else:
             st.info("LINE注文データはありません。手動アップロード機能をご利用ください。")
+        
+        # SMS/メールテキスト入力機能（LINE注文画面の下に追加）
+        st.markdown("---")
+        st.subheader("✉️ SMS/メール テキスト入力（下書き保存→一括解析）")
+        
+        colL, colR = st.columns([2,1])
+        with colL:
+            in_customer = st.text_input("顧客名（必須）", key="txt_customer")
+            in_message  = st.text_area("メッセージ内容（必須）", height=140, key="txt_message")
+        
+        with colR:
+            use_date = st.checkbox("納品日を指定する（任意）", value=False)
+            if use_date:
+                picked = st.date_input("納品日（任意）", help="カレンダーは本日を含む月から表示されます")
+                delivery_opt = picked.strftime("%Y/%m/%d")
+            else:
+                delivery_opt = ""
+        
+        # 受信日=保存時JST
+        if st.button("💾 メッセージを保存", type="secondary", key="btn_text_save"):
+            if not in_customer or not in_message:
+                st.warning("顧客名とメッセージは必須です")
+            else:
+                ok, msg, ts = save_text_order_data(username, in_customer, in_message, delivery_opt)
+                (st.success if ok else st.error)(msg)
+                if ok:
+                    # 入力欄をクリア
+                    st.session_state["txt_customer"] = ""
+                    st.session_state["txt_message"]  = ""
+                    st.rerun()
+        
+        # テキスト注文データの表示
+        text_orders = get_text_orders_for_user(username)
+        unproc_texts = [t for t in text_orders if not t.get("processed", False)]
+        proc_texts   = [t for t in text_orders if t.get("processed", False)]
+        
+        st.info(f"未処理テキスト: {len(unproc_texts)} / 解析済み: {len(proc_texts)}")
+        
+        if unproc_texts:
+            if st.button("🚀 テキスト一括解析", type="primary", key="btn_text_batch"):
+                success_cnt = err_cnt = 0
+                for t in sorted(unproc_texts, key=lambda x: x["timestamp"]):
+                    try:
+                        parsed = parse_text_order_with_openai(
+                            t["customer_name"], t["message_text"], t["order_date"], t.get("delivery_date_opt","")
+                        )
+                        ok, _ = save_parsed_text_order_data(t["timestamp"], parsed)
+                        success_cnt += 1 if ok else 0
+                    except Exception as e:
+                        err_cnt += 1
+                        st.error(f"解析エラー ({t['customer_name']}): {e}")
+                st.success(f"一括解析 完了：成功 {success_cnt} / 失敗 {err_cnt}")
+                st.rerun()
+        
+        st.markdown("#### 解析済みテキスト注文（サマリ）")
+        with st.expander("📋 解析済みTEXT注文詳細", expanded=False):
+            for i, t in enumerate(proc_texts):
+                st.write(f"**{i+1}. {t['customer_name']} - {t['order_date']} ({t['timestamp']})**")
+                st.write(f"本文: {t['message_text'][:300]}{'...' if len(t['message_text'])>300 else ''}")
+                if st.button("🗑️ 削除", key=f"del_txt_{i}_{t['timestamp']}"):
+                    ok, msg = delete_text_order_by_timestamp(t["timestamp"])
+                    (st.success if ok else st.error)(msg)
+                    st.rerun()
     
         
         # 編集済みの場合は再解析をスキップ
@@ -1442,6 +1679,52 @@ if st.session_state.get("authentication_status"):
                             "data_source": line_source
                         }
                         records.append(record)
+            
+            # テキスト注文データをrecordsに追加（まだ追加されていない場合のみ）
+            processed_text_orders = [t for t in text_orders if t.get("processed", False)]
+            existing_sources = {r.get("data_source","") for r in records}
+            for t in processed_text_orders:
+                src = f"TEXT注文_{t['timestamp']}"
+                if src in existing_sources:
+                    continue
+                parsed = t.get("parsed_data") or {}
+                delivery = parsed.get("delivery_date") or t.get("delivery_date_opt") or t["order_date"]
+                partner  = parsed.get("partner_name") or t["customer_name"]
+                items = parsed.get("items", [])
+                if not items:
+                    # 解析失敗フォールバック
+                    records.append({
+                        "order_id": f"TEXT_{t['timestamp']}",
+                        "order_date": t["order_date"],
+                        "delivery_date": delivery,
+                        "partner_name": partner,
+                        "product_code": "",
+                        "product_name": "テキスト注文（解析結果なし）",
+                        "size": "",
+                        "quantity": "",
+                        "unit": "",
+                        "unit_price": "",
+                        "amount": "",
+                        "remark": f"TEXT注文 - {t['timestamp']}",
+                        "data_source": src
+                    })
+                else:
+                    for it in items:
+                        records.append({
+                            "order_id": parsed.get("order_id","") or f"TEXT_{t['timestamp']}",
+                            "order_date": t["order_date"],
+                            "delivery_date": delivery,
+                            "partner_name": partner,
+                            "product_code": it.get("product_code",""),
+                            "product_name": it.get("product_name",""),
+                            "size": it.get("size",""),
+                            "quantity": it.get("quantity",""),
+                            "unit": it.get("unit",""),
+                            "unit_price": it.get("unit_price",""),
+                            "amount": it.get("amount",""),
+                            "remark": it.get("remark",""),
+                            "data_source": src
+                        })
             
             if uploaded_files:
                 # ファイルの重複チェックと多重解析防止
