@@ -1493,7 +1493,7 @@ if st.session_state.get("authentication_status"):
     authenticator.logout('ログアウト', 'sidebar')
 
     # タブ構成で画面を整理
-    tab1, tab2, tab3 = st.tabs(["📤 アップロード/解析", "📋 編集（注文一覧）", "🕘 履歴（DB）"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📤 アップロード/解析", "📋 編集（注文一覧）", "🕘 履歴（DB）", "🏢 組織内集計"])
     
     with tab1:
         # 注文データファイルのアップロード（最上段に移動）
@@ -2309,7 +2309,17 @@ if st.session_state.get("authentication_status"):
                 # ダウンロード時にDBに保存（履歴DBにデータを保存）
                 if downloaded:
                     try:
-                        save_order_lines(edited_df, now_str, note="編集タブから保存（Excel同時）")
+                        # ログイン情報を取得
+                        user_profile = credentials_config['credentials']['usernames'].get(username, {})
+                        company = user_profile.get('company', '')
+                        
+                        save_order_lines(
+                            edited_df, now_str,
+                            note="編集タブから保存（Excel同時）",
+                            account_email=username,
+                            account_name=name,
+                            company=company
+                        )
                         st.success(f"DBに保存しました（バッチID: {now_str}）")
 
                         # --- 画面側のデータを完全初期化 ---
@@ -2398,17 +2408,32 @@ if st.session_state.get("authentication_status"):
         if "confirm_delete_batch" not in st.session_state:
             st.session_state.confirm_delete_batch = False
         
-        # 全データを取得（データ積み上げ方式）
+        # 自分のデータのみを取得
         init_db()
         with _conn() as c:
             cur = c.execute("""
-            SELECT id, order_id as '伝票番号', order_date as '発注日', delivery_date as '納品日', partner_name as '取引先名',
-                   product_code as '商品コード', product_name as '商品名', quantity as '数量', unit as '単位',
-                   unit_price as '単価', amount as '金額', remark as '備考', data_source as 'データ元',
-                   batch_id as 'バッチID', created_at as '登録日時'
+            SELECT
+                id,
+                order_id     AS '伝票番号',
+                order_date   AS '発注日',
+                delivery_date AS '納品日',
+                partner_name AS '取引先名',
+                product_code AS '商品コード',
+                product_name AS '商品名',
+                size         AS 'サイズ',
+                quantity     AS '数量',
+                unit         AS '単位',
+                unit_price   AS '単価',
+                amount       AS '金額',
+                remark       AS '備考',
+                data_source  AS 'データ元',
+                batch_id     AS 'バッチID',
+                created_at   AS '登録日時',
+                account_name AS '登録アカウント'
             FROM order_lines
+            WHERE account_email = ?
             ORDER BY created_at DESC
-            """)
+            """, (username,))
             rows = cur.fetchall()
             cols = [d[0] for d in cur.description]
         
@@ -2428,8 +2453,14 @@ if st.session_state.get("authentication_status"):
                 latest_date = df_all['登録日時'].iloc[0] if not df_all.empty else "なし"
                 st.metric("最新登録", latest_date)
             
-            # データ表示（編集不可、ID列は非表示）
+            # データ表示（編集不可、ID列は非表示、登録アカウント列を右端に配置）
             df_display = df_all.drop('id', axis=1)  # ID列を非表示
+            
+            # 登録アカウント列を右端に配置
+            if '登録アカウント' in df_display.columns:
+                ordered = [c for c in df_display.columns if c != '登録アカウント'] + ['登録アカウント']
+                df_display = df_display[ordered]
+            
             st.dataframe(df_display, use_container_width=True, hide_index=True)
 
             # 行削除機能
@@ -2696,6 +2727,194 @@ if st.session_state.get("authentication_status"):
                 
                 with col3:
                     st.info("この操作は取り消せません")
+
+    with tab4:
+        st.subheader("🏢 組織内集計（会社単位）")
+        
+        # ログイン情報を取得
+        user_profile = credentials_config['credentials']['usernames'].get(username, {})
+        company = user_profile.get('company', '')
+        
+        if not company:
+            st.warning("会社名が設定されていません。管理者にお問い合わせください。")
+        else:
+            st.info(f"**対象会社**: {company}")
+            
+            # 期間フィルター
+            col1, col2 = st.columns(2)
+            with col1:
+                dfrom = st.date_input("開始日", value=None, format="YYYY-MM-DD")
+            with col2:
+                dto = st.date_input("終了日", value=None, format="YYYY-MM-DD")
+            
+            # 期間条件を組み立て
+            where = ["company = ?"]
+            params = [company]
+            if dfrom:
+                where.append("(order_date >= ? OR (order_date IS NULL AND created_at >= ?))")
+                params += [str(dfrom), f"{str(dfrom)} 00:00:00"]
+            if dto:
+                where.append("(order_date < ?  OR (order_date IS NULL AND created_at < ?))")
+                params += [str(dto), f"{str(dto)} 23:59:59"]
+            
+            where_sql = " AND ".join(where)
+            
+            # データベースから集計データを取得
+            init_db()
+            with _conn() as c:
+                # アカウント別集計
+                q1 = f"""
+                    SELECT account_name AS 'アカウント', COUNT(*) AS '行数', 
+                           COALESCE(SUM(CAST(amount AS REAL)), 0) AS '金額合計'
+                    FROM order_lines
+                    WHERE {where_sql}
+                    GROUP BY account_name
+                    ORDER BY 金額合計 DESC
+                """
+                
+                # 商品別集計（サイズ含む）
+                q2 = f"""
+                    SELECT product_name AS '商品名', size AS 'サイズ', unit AS '単位',
+                           COALESCE(SUM(CAST(quantity AS REAL)), 0) AS '数量合計', 
+                           COALESCE(SUM(CAST(amount AS REAL)), 0) AS '金額合計'
+                    FROM order_lines
+                    WHERE {where_sql}
+                    GROUP BY product_name, size, unit
+                    ORDER BY 数量合計 DESC
+                """
+                
+                # 取引先別集計
+                q3 = f"""
+                    SELECT partner_name AS '取引先名', COUNT(*) AS '行数', 
+                           COALESCE(SUM(CAST(amount AS REAL)), 0) AS '金額合計'
+                    FROM order_lines
+                    WHERE {where_sql}
+                    GROUP BY partner_name
+                    ORDER BY 金額合計 DESC
+                """
+                
+                try:
+                    df_acc = pd.DataFrame(c.execute(q1, params).fetchall(), 
+                                        columns=['アカウント','行数','金額合計'])
+                    df_prd = pd.DataFrame(c.execute(q2, params).fetchall(), 
+                                        columns=['商品名','サイズ','単位','数量合計','金額合計'])
+                    df_ptn = pd.DataFrame(c.execute(q3, params).fetchall(), 
+                                        columns=['取引先名','行数','金額合計'])
+                    
+                    # アカウント別集計
+                    st.markdown("### 📊 アカウント別集計")
+                    if not df_acc.empty:
+                        st.dataframe(df_acc, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("該当期間のデータがありません")
+                    
+                    # 商品別集計
+                    st.markdown("### 📦 商品別集計")
+                    if not df_prd.empty:
+                        st.dataframe(df_prd, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("該当期間のデータがありません")
+                    
+                    # 取引先別集計
+                    st.markdown("### 🏢 取引先別集計")
+                    if not df_ptn.empty:
+                        st.dataframe(df_ptn, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("該当期間のデータがありません")
+                    
+                    # 組織内集計のExcelダウンロード
+                    if not df_acc.empty or not df_prd.empty or not df_ptn.empty:
+                        st.markdown("---")
+                        st.subheader("📥 組織内集計Excelダウンロード")
+                        
+                        # Excel生成
+                        output_org = io.BytesIO()
+                        with pd.ExcelWriter(output_org, engine='xlsxwriter') as writer:
+                            workbook = writer.book
+                            header_format = workbook.add_format({'bold': False, 'border': 0})
+                            
+                            # 罫線フォーマット
+                            border_format = workbook.add_format({
+                                'border': 1,
+                                'border_color': '#323232'
+                            })
+                            
+                            # 各シートに出力
+                            if not df_acc.empty:
+                                df_acc.to_excel(writer, index=False, sheet_name="アカウント別集計", startrow=1, header=False)
+                                worksheet1 = writer.sheets["アカウント別集計"]
+                                for col_num, value in enumerate(df_acc.columns.values):
+                                    worksheet1.write(0, col_num, value, header_format)
+                                
+                                # 罫線適用
+                                if not df_acc.empty:
+                                    end_row = len(df_acc)
+                                    end_col = len(df_acc.columns) - 1
+                                    worksheet1.conditional_format(0, 0, end_row, end_col, {
+                                        'type': 'cell',
+                                        'criteria': '>=',
+                                        'value': 0,
+                                        'format': border_format
+                                    })
+                            
+                            if not df_prd.empty:
+                                df_prd.to_excel(writer, index=False, sheet_name="商品別集計", startrow=1, header=False)
+                                worksheet2 = writer.sheets["商品別集計"]
+                                for col_num, value in enumerate(df_prd.columns.values):
+                                    worksheet2.write(0, col_num, value, header_format)
+                                
+                                # 罫線適用
+                                if not df_prd.empty:
+                                    end_row = len(df_prd)
+                                    end_col = len(df_prd.columns) - 1
+                                    worksheet2.conditional_format(0, 0, end_row, end_col, {
+                                        'type': 'cell',
+                                        'criteria': '>=',
+                                        'value': 0,
+                                        'format': border_format
+                                    })
+                            
+                            if not df_ptn.empty:
+                                df_ptn.to_excel(writer, index=False, sheet_name="取引先別集計", startrow=1, header=False)
+                                worksheet3 = writer.sheets["取引先別集計"]
+                                for col_num, value in enumerate(df_ptn.columns.values):
+                                    worksheet3.write(0, col_num, value, header_format)
+                                
+                                # 罫線適用
+                                if not df_ptn.empty:
+                                    end_row = len(df_ptn)
+                                    end_col = len(df_ptn.columns) - 1
+                                    worksheet3.conditional_format(0, 0, end_row, end_col, {
+                                        'type': 'cell',
+                                        'criteria': '>=',
+                                        'value': 0,
+                                        'format': border_format
+                                    })
+                            
+                            # 印刷設定
+                            for ws in [worksheet1, worksheet2, worksheet3]:
+                                if ws:
+                                    ws.set_landscape()
+                                    ws.set_paper(9)
+                                    ws.fit_to_pages(1, 0)
+                                    ws.set_margins(left=0.3, right=0.3, top=0.5, bottom=0.5)
+                                    ws.repeat_rows(0, 0)
+                        
+                        output_org.seek(0)
+                        
+                        jst = pytz.timezone("Asia/Tokyo")
+                        now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
+                        
+                        st.download_button(
+                            label="組織内集計Excelをダウンロード",
+                            data=output_org,
+                            file_name=f"組織内集計_{company}_{now_str}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="download_org_summary"
+                        )
+                
+                except Exception as e:
+                    st.error(f"集計データの取得エラー: {e}")
 
 elif st.session_state.get("authentication_status") is False:
     st.error("ユーザー名またはパスワードが正しくありません。")

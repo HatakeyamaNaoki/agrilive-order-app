@@ -95,6 +95,26 @@ def init_db():
         if "size" not in cols:
             c.execute("ALTER TABLE order_lines ADD COLUMN size TEXT;")
         
+        # --- 既存DB移行（account_*, company列がなければ追加） ---
+        def _ensure_column(c, table, col, type_sql="TEXT"):
+            cols = [r[1] for r in c.execute(f"PRAGMA table_info({table})").fetchall()]
+            if col not in cols:
+                c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {type_sql};")
+
+        # order_lines に追加
+        _ensure_column(c, "order_lines", "account_email", "TEXT")
+        _ensure_column(c, "order_lines", "account_name", "TEXT")
+        _ensure_column(c, "order_lines", "company", "TEXT")
+
+        # batches にも追加
+        _ensure_column(c, "batches", "account_email", "TEXT")
+        _ensure_column(c, "batches", "account_name", "TEXT")
+        _ensure_column(c, "batches", "company", "TEXT")
+
+        # インデックス（高速化）
+        c.execute("CREATE INDEX IF NOT EXISTS idx_order_lines_account_created ON order_lines(account_email, created_at);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_order_lines_company_created ON order_lines(company, created_at);")
+        
         # バッチ管理テーブル
         c.execute("""
         CREATE TABLE IF NOT EXISTS batches (
@@ -112,16 +132,24 @@ def _calc_hash(row: dict) -> str:
     s = "|".join(str(row.get(k, "")) for k in keys)
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
-def save_order_lines(df, batch_id: str, note: str = None):
+def save_order_lines(df, batch_id: str, note: str = None,
+                     account_email: str = None, account_name: str = None, company: str = None):
     """注文明細をデータベースに保存"""
     now = datetime.datetime.now().isoformat(timespec="seconds")
     init_db()
     df = _normalize_df(df)  # ★追加：英語スキーマに統一
     
     with _conn() as c:
-        # バッチ登録（なければ）
-        c.execute("INSERT OR IGNORE INTO batches(batch_id, created_at, note) VALUES(?, ?, ?)",
-                  (batch_id, now, note))
+        # バッチ情報を保存（既に存在ならメタ更新）
+        c.execute("""
+            INSERT INTO batches (batch_id, created_at, note, account_email, account_name, company)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(batch_id) DO UPDATE SET
+                note=excluded.note,
+                account_email=excluded.account_email,
+                account_name=excluded.account_name,
+                company=excluded.company
+        """, (batch_id, now, note, account_email, account_name, company))
         
         # 行をINSERT（重複はrow_hashのUNIQUEで無視）
         cols = ["order_id", "order_date", "delivery_date", "partner_name",
@@ -137,11 +165,13 @@ def save_order_lines(df, batch_id: str, note: str = None):
             INSERT OR IGNORE INTO order_lines
             (batch_id, order_id, order_date, delivery_date, partner_name,
              product_code, product_name, size, quantity, unit, unit_price, amount, remark, data_source,
+             account_email, account_name, company,
              row_hash, created_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?, ?, ?,?)
             """, (batch_id, row["order_id"], row["order_date"], row["delivery_date"], row["partner_name"],
                   row["product_code"], row["product_name"], row["size"], row["quantity"], row["unit"],
                   row["unit_price"], row["amount"], row["remark"], row["data_source"],
+                  account_email, account_name, company,
                   h, now))
 
 def list_batches():
