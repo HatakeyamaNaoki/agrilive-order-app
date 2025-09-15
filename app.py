@@ -24,26 +24,24 @@ import tempfile
 import filelock
 from db import init_db, save_order_lines, list_batches, load_batch, get_batch_stats, DB_PATH, _conn
 
+# データ保存ディレクトリの統一（APP_DATA_DIRを使用）
+from config import load_config
+CONFIG = load_config()
+DATA_DIR = Path(CONFIG.get("app_data_dir"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 # LINE注文データ管理用のディレクトリ
-LINE_ORDERS_DIR = "line_orders"
+LINE_ORDERS_DIR = str(DATA_DIR / "line_orders")
 if not os.path.exists(LINE_ORDERS_DIR):
     os.makedirs(LINE_ORDERS_DIR, exist_ok=True)
 
 # テキスト注文データ管理用のディレクトリ
-TEXT_ORDERS_DIR = "text_orders"
+TEXT_ORDERS_DIR = str(DATA_DIR / "text_orders")
 if not os.path.exists(TEXT_ORDERS_DIR):
     os.makedirs(TEXT_ORDERS_DIR, exist_ok=True)
 
-# --- 認証情報ファイル管理 ---
-APP_DIR = Path(__file__).resolve().parent
-
-# 本番だけ APP_DATA_DIR を使い、それ以外は常に APP_DIR/data
-if os.getenv("APP_DATA_DIR") and os.getenv("ENV") == "production":
-    DEFAULT_DATA_DIR = os.getenv("APP_DATA_DIR")
-else:
-    DEFAULT_DATA_DIR = str(APP_DIR / "data")
-
-CRED_PATH = Path(DEFAULT_DATA_DIR) / "credentials.yml"
+# --- 認証情報ファイル管理（統一されたDATA_DIRを使用） ---
+CRED_PATH = DATA_DIR / "credentials.yml"
 LOCK_PATH = CRED_PATH.with_suffix(".lock")
 
 def _atomic_write_text(path: Path, text: str):
@@ -1020,6 +1018,10 @@ if st.session_state.get("authentication_status"):
     # DB情報は管理者のみ表示
     if is_admin(username):
         st.sidebar.info(f"DB: {DB_PATH}")
+        st.sidebar.info(f"データディレクトリ: {DATA_DIR}")
+        st.sidebar.info(f"LINE注文: {LINE_ORDERS_DIR}")
+        st.sidebar.info(f"テキスト注文: {TEXT_ORDERS_DIR}")
+        st.sidebar.info(f"認証YAML: {CRED_PATH}")
     
     # データ更新ボタンをサイドバーに移動
     st.sidebar.markdown("---")

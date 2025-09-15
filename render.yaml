@@ -12,6 +12,11 @@ services:
       - key: ENV
         value: production
       - key: APP_DATA_DIR
-        value: /opt/render/project/src/data
+        value: /var/data
     healthCheckPath: /
-    autoDeploy: true 
+    autoDeploy: true
+    # 永続ディスクの設定
+    disk:
+      name: agrilive-data-disk
+      mountPath: /var/data
+      sizeGB: 5 

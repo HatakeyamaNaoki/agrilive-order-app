@@ -4,10 +4,13 @@ import hashlib
 import datetime
 from contextlib import contextmanager
 import pandas as pd
+from config import load_config
 
-# データベースファイルのパス設定
-DB_PATH = Path(__file__).parent / "data" / "app.db"
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+# データベースファイルのパス設定（APP_DATA_DIRを使用）
+CONFIG = load_config()
+DATA_DIR = Path(CONFIG.get("app_data_dir"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = DATA_DIR / "app.db"
 
 # 日本語列名→英語列名のマッピング
 J2E = {
