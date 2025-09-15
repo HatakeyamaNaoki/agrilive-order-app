@@ -1497,7 +1497,7 @@ if st.session_state.get("authentication_status"):
     
     with tab1:
         # 注文データファイルのアップロード（最上段に移動）
-        st.subheader("注文データファイルのアップロード")
+        st.subheader("📝 注文データファイルのアップロード")
         
         # セッション状態の初期化（ファイルアップローダーの前に配置）
         if 'data_edited' not in st.session_state:
@@ -1540,6 +1540,27 @@ if st.session_state.get("authentication_status"):
                 st.success("解析済みファイルをリセットしました。")
                 st.rerun()
 
+        # PDF解析結果の表示（注文データファイルアップロードセクション内）
+        if uploaded_files:
+            # 新しいファイルがアップロードされた場合の処理
+            new_files = []
+            for file in uploaded_files:
+                file_hash = f"{file.name}_{file.size}_{file.type}"
+                if file_hash not in st.session_state.processed_files:
+                    new_files.append(file)
+            
+            if new_files:
+                st.info(f"新しいファイル {len(new_files)} 件を解析します")
+                
+                # PDFファイルの画像表示
+                for file in new_files:
+                    if file.name.lower().endswith(".pdf"):
+                        content = file.read()
+                        if show_pdf_images:
+                            pdf_images = extract_pdf_images(content)
+                            if pdf_images:
+                                display_pdf_images(pdf_images, file.name)
+
         records = []
         debug_details = []
         
@@ -1548,6 +1569,7 @@ if st.session_state.get("authentication_status"):
         processed_line_orders = [order for order in line_orders if order.get("processed", False)]
         
         # LINE注文データの表示（2番目に移動）
+        st.markdown("---")
         st.subheader("📱 LINE注文データ")
         
         # 統計情報
@@ -1796,6 +1818,27 @@ if st.session_state.get("authentication_status"):
         else:
             st.info("LINE注文データはありません。手動アップロード機能をご利用ください。")
         
+        # 解析済みLINE注文詳細を表示
+        if processed_line_orders:
+            with st.expander("📋 解析済みLINE注文詳細", expanded=False):
+                for i, order in enumerate(processed_line_orders):
+                    col1, col2 = st.columns([3, 1])
+                    
+                    with col1:
+                        st.write(f"**{i+1}. {order['sender_name']} - {order['order_date']}**")
+                        st.write(f"受信日時: {order['timestamp']}")
+                        if order.get('message_text'):
+                            st.write(f"メッセージ: {order['message_text']}")
+                    
+                    with col2:
+                        st.write("")  # 上部の空白を調整
+                        # 画像表示
+                        image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
+                        if os.path.exists(image_path):
+                            st.image(image_path, caption="LINE注文画像", width=200)
+                    
+                    st.markdown("---")
+        
         # SMS/メールテキスト入力機能（LINE注文画面の下に追加）
         st.markdown("---")
         st.subheader("✉️ SMS/メール テキスト入力（下書き保存→一括解析）")
@@ -1902,27 +1945,7 @@ if st.session_state.get("authentication_status"):
             
             # 全データ表示機能を追加
             if processed_line_orders:
-                
-                
-                # 解析済みデータの詳細表示（レイアウトを統一）
-                with st.expander("📋 解析済みLINE注文詳細", expanded=False):
-                    for i, order in enumerate(processed_line_orders):
-                        col1, col2 = st.columns([3, 1])
-                        
-                        with col1:
-                            st.write(f"**{i+1}. {order['sender_name']} - {order['order_date']}**")
-                            st.write(f"受信日時: {order['timestamp']}")
-                            if order.get('message_text'):
-                                st.write(f"メッセージ: {order['message_text']}")
-                        
-                        with col2:
-                            st.write("")  # 上部の空白を調整
-                            # 画像表示
-                            image_path = os.path.join(LINE_ORDERS_DIR, order['image_filename'])
-                            if os.path.exists(image_path):
-                                st.image(image_path, caption="LINE注文画像", width=200)
-                        
-                        st.markdown("---")
+                pass  # 解析済みLINE注文詳細は既にLINE注文データセクションで表示済み
             
             # LINE注文データをrecordsに追加（まだ追加されていない場合のみ）
             existing_line_sources = {record.get("data_source", "") for record in records}
@@ -2032,8 +2055,6 @@ if st.session_state.get("authentication_status"):
                     new_files.append(file)
                 
                 if new_files:
-                    st.info(f"新しいファイル {len(new_files)} 件を解析します")
-                    
                     for file in new_files:
                         filename = file.name
                         content = file.read()
@@ -2085,11 +2106,10 @@ if st.session_state.get("authentication_status"):
                                 st.error(f"{filename} の読み込みに失敗しました: {e}")
                         
                         elif filename.lower().endswith(".pdf"):
-                            # PDF画像の抽出と表示
+                            # PDF画像の抽出（表示は後で行う）
+                            pdf_images = None
                             if show_pdf_images:
                                 pdf_images = extract_pdf_images(content)
-                                if pdf_images:
-                                    display_pdf_images(pdf_images, filename)
                             
                             # PDF解析の実行
                             try:
