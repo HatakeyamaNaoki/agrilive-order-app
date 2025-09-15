@@ -1963,6 +1963,47 @@ if st.session_state.get("authentication_status"):
                 for col_num, value in enumerate(df_agg.columns.values):
                     worksheet3.write(0, col_num, value, header_format)
 
+                # ヘルパー：列名からピクセルで幅を設定（古いXlsxWriterなら文字幅換算）
+                def _set_px(ws, name_to_idx: dict, col_label: str, px: int):
+                    if col_label not in name_to_idx:
+                        return
+                    c = name_to_idx[col_label]
+                    try:
+                        ws.set_column_pixels(c, c, px)        # ぴったりピクセル指定（推奨）
+                    except AttributeError:
+                        ws.set_column(c, c, round((px - 5) / 7, 2))  # フォールバック：概算（px→文字幅）
+
+                # === 列幅設定 ===
+                # 注文一覧
+                cols1 = list(edited_df.columns)
+                idx1  = {v: i for i, v in enumerate(cols1)}
+                _set_px(worksheet1, idx1, "発注日", 105)
+                _set_px(worksheet1, idx1, "納品日", 105)
+                _set_px(worksheet1, idx1, "商品名", 244)
+                _set_px(worksheet1, idx1, "備考",   244)
+
+                # 注文一覧(層別結果)
+                cols2 = list(df_sorted.columns)
+                idx2  = {v: i for i, v in enumerate(cols2)}
+                _set_px(worksheet2, idx2, "発注日", 105)
+                _set_px(worksheet2, idx2, "納品日", 105)
+                _set_px(worksheet2, idx2, "商品名", 244)
+                _set_px(worksheet2, idx2, "備考",   244)
+
+                # 集計結果（このシートは 発注日/納品日 が無い想定）
+                cols3 = list(df_agg.columns)
+                idx3  = {v: i for i, v in enumerate(cols3)}
+                _set_px(worksheet3, idx3, "商品名", 244)
+                _set_px(worksheet3, idx3, "備考",   244)
+
+                # === 印刷設定（横1ページに収める） ===
+                for ws in (worksheet1, worksheet2, worksheet3):
+                    ws.set_landscape()     # 横向き
+                    ws.set_paper(9)        # A4
+                    ws.fit_to_pages(1, 0)  # 横1ページ・縦は自動縮小で可変（=0）
+                    ws.set_margins(left=0.3, right=0.3, top=0.5, bottom=0.5)
+                    ws.repeat_rows(0, 0)   # 1行目（見出し）を各ページに繰り返し
+
             output.seek(0)
             
             # 編集タブでExcel出力時にDB保存（Excelダウンロードボタンが押された時のみ）
@@ -2248,6 +2289,32 @@ if st.session_state.get("authentication_status"):
                 worksheet = writer.sheets["全注文履歴"]
                 for col_num, value in enumerate(df_all.columns.values):
                     worksheet.write(0, col_num, value, header_format)
+
+                # ヘルパー：列名からピクセルで幅を設定（古いXlsxWriterなら文字幅換算）
+                def _set_px(ws, name_to_idx: dict, col_label: str, px: int):
+                    try:
+                        c = name_to_idx[col_label]
+                        try:
+                            ws.set_column_pixels(c, c, px)
+                        except AttributeError:
+                            ws.set_column(c, c, round((px - 5) / 7, 2))
+                    except KeyError:
+                        pass
+
+                colsH = list(df_all.columns)
+                idxH  = {v: i for i, v in enumerate(colsH)}
+                wsH   = worksheet  # 既存の "全注文履歴" ワークシート
+
+                _set_px(wsH, idxH, "発注日", 105)
+                _set_px(wsH, idxH, "納品日", 105)
+                _set_px(wsH, idxH, "商品名", 244)
+                _set_px(wsH, idxH, "備考",   244)
+
+                wsH.set_landscape()
+                wsH.set_paper(9)
+                wsH.fit_to_pages(1, 0)
+                wsH.set_margins(left=0.3, right=0.3, top=0.5, bottom=0.5)
+                wsH.repeat_rows(0, 0)
             
             output_all.seek(0)
             
