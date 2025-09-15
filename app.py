@@ -1591,15 +1591,48 @@ if st.session_state.get("authentication_status"):
                 st.success(f"一括解析 完了：成功 {success_cnt} / 失敗 {err_cnt}")
                 st.rerun()
         
-        st.markdown("#### 解析済みテキスト注文（サマリ）")
-        with st.expander("📋 解析済みTEXT注文詳細", expanded=False):
-            for i, t in enumerate(proc_texts):
-                st.write(f"**{i+1}. {t['customer_name']} - {t['order_date']} ({t['timestamp']})**")
-                st.write(f"本文: {t['message_text'][:300]}{'...' if len(t['message_text'])>300 else ''}")
-                if st.button("🗑️ 削除", key=f"del_txt_{i}_{t['timestamp']}"):
-                    ok, msg = delete_text_order_by_timestamp(t["timestamp"])
-                    (st.success if ok else st.error)(msg)
-                    st.rerun()
+        # 未処理テキスト注文の表示
+        if unproc_texts:
+            st.markdown("#### 未処理テキスト注文")
+            with st.expander("📋 未処理TEXT注文詳細", expanded=False):
+                for i, t in enumerate(unproc_texts):
+                    st.write(f"**{i+1}. {t['customer_name']} - {t['order_date']} ({t['timestamp']})**")
+                    st.write(f"本文: {t['message_text'][:300]}{'...' if len(t['message_text'])>300 else ''}")
+                    if t.get('delivery_date_opt'):
+                        st.write(f"指定納品日: {t['delivery_date_opt']}")
+                    if st.button("🗑️ 削除", key=f"del_unproc_txt_{i}_{t['timestamp']}"):
+                        ok, msg = delete_text_order_by_timestamp(t["timestamp"])
+                        (st.success if ok else st.error)(msg)
+                        st.rerun()
+        
+        # 解析済みテキスト注文の表示
+        if proc_texts:
+            st.markdown("#### 解析済みテキスト注文")
+            with st.expander("📋 解析済みTEXT注文詳細", expanded=False):
+                for i, t in enumerate(proc_texts):
+                    st.write(f"**{i+1}. {t['customer_name']} - {t['order_date']} ({t['timestamp']})**")
+                    st.write(f"本文: {t['message_text'][:300]}{'...' if len(t['message_text'])>300 else ''}")
+                    if t.get('delivery_date_opt'):
+                        st.write(f"指定納品日: {t['delivery_date_opt']}")
+                    
+                    # 解析結果の表示
+                    parsed_data = t.get('parsed_data')
+                    if parsed_data:
+                        st.write("**解析結果:**")
+                        if parsed_data.get('delivery_date'):
+                            st.write(f"納品日: {parsed_data['delivery_date']}")
+                        items = parsed_data.get('items', [])
+                        if items:
+                            st.write("**商品一覧:**")
+                            for j, item in enumerate(items):
+                                st.write(f"  {j+1}. {item.get('product_name', '')} - 数量: {item.get('quantity', '')} {item.get('unit', '')}")
+                                if item.get('remark'):
+                                    st.write(f"     備考: {item['remark']}")
+                    
+                    if st.button("🗑️ 削除", key=f"del_proc_txt_{i}_{t['timestamp']}"):
+                        ok, msg = delete_text_order_by_timestamp(t["timestamp"])
+                        (st.success if ok else st.error)(msg)
+                        st.rerun()
     
         
         # 編集済みの場合は再解析をスキップ
