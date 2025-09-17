@@ -27,3 +27,4 @@ def get_taxonomy_user_prompt(product_inputs):
         [{"input": product_input} for product_input in product_inputs], 
         ensure_ascii=False
     )
+

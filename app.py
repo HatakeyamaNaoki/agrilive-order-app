@@ -2391,7 +2391,7 @@ if st.session_state.get("authentication_status"):
                         .groupby(["商品名", "サイズ", "備考", "単位"], dropna=False, as_index=False)
                         .agg({"数量": "sum"})
                     )
-                    df_agg = df_agg[["商品名", "サイズ", "備考", "数量", "単位"]]
+                    df_agg = df_agg[["商品名", "数量", "単位", "サイズ", "備考"]]
                     df_agg = attach_and_sort_by_taxonomy(
                         df_agg,
                         client=client,
