@@ -2,6 +2,7 @@ import streamlit as st
 import streamlit_authenticator as stauth
 import json
 import pandas as pd
+import numpy as np
 import io
 import pytz
 from config import get_openai_api_key, is_production, load_config, get_line_channel_access_token
@@ -93,6 +94,29 @@ def _preclean(name: str) -> str:
     s = re.sub(r"\s+", " ", s)
     return s
 
+def _safe_num(s):
+    """数値を安全に変換（非数値はNaN）"""
+    return pd.to_numeric(s, errors="coerce")
+
+def check_quantity_integrity(df_before: pd.DataFrame, df_after: pd.DataFrame,
+                             qty_col: str = "数量") -> pd.DataFrame:
+    """
+    前後で数量の総和が同じかを検証する簡易ガード。
+    - 数量列は数値化（非数は無視）
+    - 戻り値は報告用1行DataFrame（ExcelのCHECKシートに書き出し可）
+    """
+    bsum = _safe_num(df_before.get(qty_col)).sum(skipna=True)
+    asum = _safe_num(df_after.get(qty_col)).sum(skipna=True)
+    diff = (asum - bsum)
+    status = "OK" if (pd.isna(diff) or abs(diff) < 1e-9) else "NG"
+    return pd.DataFrame([{
+        "チェック対象": "数量総和",
+        "処理前合計": float(bsum) if pd.notna(bsum) else np.nan,
+        "処理後合計": float(asum) if pd.notna(asum) else np.nan,
+        "差分(後-前)": float(diff) if pd.notna(diff) else np.nan,
+        "結果": status
+    }])
+
 def classify_products_with_openai(product_names: List[str], client, model: str = "gpt-4o-mini") -> Dict[str, Taxonomy]:
     """
     入力：任意の商品名配列
@@ -123,8 +147,8 @@ def classify_products_with_openai(product_names: List[str], client, model: str =
         try:
             results = json.loads(text)
         except Exception:
-            # フォールバック：全て非商品扱いで末尾
-            results = [{"is_product": False, "major": "その他", "sub": "その他", "canonical": _preclean(x), "yomi": _preclean(x)} for x in to_query]
+            # フォールバック：全て商品扱いで"その他"に分類（落とさない）
+            results = [{"is_product": True, "major": "その他", "sub": "その他", "canonical": _preclean(x), "yomi": _preclean(x)} for x in to_query]
 
         for raw, item in zip(to_query, results):
             cache[raw] = item
@@ -132,9 +156,9 @@ def classify_products_with_openai(product_names: List[str], client, model: str =
 
     out: Dict[str, Taxonomy] = {}
     for raw in product_names:
-        obj = cache.get(raw) or {"is_product": False, "major": "その他", "sub": "その他", "canonical": _preclean(raw), "yomi": _preclean(raw)}
+        obj = cache.get(raw) or {"is_product": True, "major": "その他", "sub": "その他", "canonical": _preclean(raw), "yomi": _preclean(raw)}
         out[raw] = Taxonomy(
-            is_product=bool(obj.get("is_product", False)),
+            is_product=bool(obj.get("is_product", True)),  # デフォルトをTrueに変更
             major=str(obj.get("major", "その他")),
             sub=str(obj.get("sub", "その他")),
             canonical=str(obj.get("canonical", _preclean(raw))),
@@ -156,14 +180,16 @@ def attach_and_sort_by_taxonomy(df, client, drop_non_product: bool, secondary_ke
 
     # 付与
     df = df.copy()
-    df["_is_product"] = df["商品名"].map(lambda x: tax.get(x, Taxonomy(False, "その他", "その他", str(x), str(x))).is_product)
+    df["_is_product"] = df["商品名"].map(lambda x: tax.get(x, Taxonomy(True, "その他", "その他", str(x), str(x))).is_product)  # デフォルトをTrueに変更
     df["_major"] = df["商品名"].map(lambda x: tax.get(x).major if x in tax else "その他")
     df["_sub"]   = df["商品名"].map(lambda x: tax.get(x).sub   if x in tax else "その他")
     df["_yomi"]  = df["商品名"].map(lambda x: tax.get(x).yomi  if x in tax else str(x))
     df["_canon"] = df["商品名"].map(lambda x: tax.get(x).canonical if x in tax else str(x))
 
-    df["_major_rank"] = df["_major"].map(MAJOR_ORDER).fillna(99).astype(int)
-    df["_sub_rank"] = df.apply(lambda r: SUB_ORDER.get(r["_major"], {}).get(r["_sub"], 99), axis=1).astype(int)
+    # 並び順設定（"その他"を確実に最後尾に）
+    df["_major_rank"] = df["_major"].map(MAJOR_ORDER).fillna(999).astype(int)  # "その他"は999で最後尾
+    df["_sub_rank"] = df.apply(lambda r: SUB_ORDER.get(r["_major"], {}).get(r["_sub"], 999), axis=1).astype(int)
+    df.loc[(df["_major"]=="その他") | (df["_sub"]=="その他"), "_sub_rank"] = 999
 
     sort_cols = ["_major_rank", "_sub_rank", "_yomi"]
     if secondary_keys:
@@ -2398,6 +2424,15 @@ if st.session_state.get("authentication_status"):
                         drop_non_product=True,         # 集計は非商品を除外
                         secondary_keys=["商品名"]
                     )
+                    
+                    # 数量整合チェック
+                    check_df = check_quantity_integrity(df_before=edited_df, df_after=df_agg, qty_col="数量")
+                    
+                    # Streamlitの通知
+                    if not check_df.empty and check_df.iloc[0]["結果"] == "NG":
+                        st.error("⚠️ 数量の総和に差異があります。Excelの 'CHECK_数量整合性' シートを確認してください。")
+                    else:
+                        st.success("✅ 数量の総和は一致しています。")
                 else:
                     # APIキーがない場合は従来のソート
                     df_sorted = edited_df.sort_values(
@@ -2410,6 +2445,15 @@ if st.session_state.get("authentication_status"):
                     )
                     df_agg = df_agg[["商品名", "サイズ", "備考", "数量", "単位"]]
                     df_agg = df_agg.sort_values(by=["商品名"])
+                    
+                    # 数量整合チェック（APIキーなしの場合）
+                    check_df = check_quantity_integrity(df_before=edited_df, df_after=df_agg, qty_col="数量")
+                    
+                    # Streamlitの通知
+                    if not check_df.empty and check_df.iloc[0]["結果"] == "NG":
+                        st.error("⚠️ 数量の総和に差異があります。Excelの 'CHECK_数量整合性' シートを確認してください。")
+                    else:
+                        st.success("✅ 数量の総和は一致しています。")
             except Exception as e:
                 # エラー時は従来のソート
                 st.warning(f"商品分類ソートでエラーが発生しました。従来のソートを使用します: {e}")
@@ -2423,6 +2467,15 @@ if st.session_state.get("authentication_status"):
                 )
                 df_agg = df_agg[["商品名", "サイズ", "備考", "数量", "単位"]]
                 df_agg = df_agg.sort_values(by=["商品名"])
+                
+                # 数量整合チェック（エラー時の場合）
+                check_df = check_quantity_integrity(df_before=edited_df, df_after=df_agg, qty_col="数量")
+                
+                # Streamlitの通知
+                if not check_df.empty and check_df.iloc[0]["結果"] == "NG":
+                    st.error("⚠️ 数量の総和に差異があります。Excelの 'CHECK_数量整合性' シートを確認してください。")
+                else:
+                    st.success("✅ 数量の総和は一致しています。")
             output = io.BytesIO()
             jst = pytz.timezone("Asia/Tokyo")
             now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
@@ -2457,6 +2510,14 @@ if st.session_state.get("authentication_status"):
                 worksheet3 = writer.sheets[sheet3]
                 for col_num, value in enumerate(df_agg.columns.values):
                     worksheet3.write(0, col_num, value, header_format)
+                
+                # ▼ 数量整合チェックシート
+                if 'check_df' in locals() and not check_df.empty:
+                    sheet4 = "CHECK_数量整合性"
+                    check_df.to_excel(writer, index=False, sheet_name=sheet4, startrow=1, header=False)
+                    worksheet4 = writer.sheets[sheet4]
+                    for col_num, value in enumerate(check_df.columns.values):
+                        worksheet4.write(0, col_num, value, header_format)
 
                 # ヘルパー：列名からピクセルで幅を設定（古いXlsxWriterなら文字幅換算）
                 def _set_px(ws, name_to_idx: dict, col_label: str, px: int):
@@ -2512,13 +2573,19 @@ if st.session_state.get("authentication_status"):
                 _apply_borders(worksheet2, df_sorted, 0)    # 注文一覧(層別結果)
                 _apply_borders(worksheet3, df_agg, 0)       # 集計結果
 
-                # === 印刷設定（横1ページに収める） ===
+                # === 印刷設定（複数ページ対応） ===
                 for ws in (worksheet1, worksheet2, worksheet3):
                     ws.set_landscape()     # 横向き
                     ws.set_paper(9)        # A4
-                    ws.fit_to_pages(1, 0)  # 横1ページ・縦は自動縮小で可変（=0）
+                    # 横1ページ・縦は複数ページ可（最後の行が途切れないように）
+                    ws.fit_to_pages(1, None)  # 横1ページ・縦は制限なし
                     ws.set_margins(left=0.3, right=0.3, top=0.5, bottom=0.5)
                     ws.repeat_rows(0, 0)   # 1行目（見出し）を各ページに繰り返し
+                    
+                    # 印刷品質を向上させる設定
+                    ws.set_print_quality(600)  # 高品質印刷
+                    ws.set_h_pagebreaks([])    # 水平改ページをクリア
+                    ws.set_v_pagebreaks([])    # 垂直改ページをクリア
 
             output.seek(0)
             
