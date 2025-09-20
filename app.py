@@ -2582,10 +2582,17 @@ if st.session_state.get("authentication_status"):
                     ws.set_margins(left=0.3, right=0.3, top=0.5, bottom=0.5)
                     ws.repeat_rows(0, 0)   # 1行目（見出し）を各ページに繰り返し
                     
-                    # 印刷品質を向上させる設定
-                    ws.set_print_quality(600)  # 高品質印刷
-                    ws.set_h_pagebreaks([])    # 水平改ページをクリア
-                    ws.set_v_pagebreaks([])    # 垂直改ページをクリア
+                    # 印刷品質を向上させる設定（メソッドが存在する場合のみ）
+                    try:
+                        ws.set_print_quality(600)  # 高品質印刷
+                    except AttributeError:
+                        pass  # メソッドが存在しない場合はスキップ
+                    
+                    try:
+                        ws.set_h_pagebreaks([])    # 水平改ページをクリア
+                        ws.set_v_pagebreaks([])    # 垂直改ページをクリア
+                    except AttributeError:
+                        pass  # メソッドが存在しない場合はスキップ
 
             output.seek(0)
             
