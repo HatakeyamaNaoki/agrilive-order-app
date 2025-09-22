@@ -2363,11 +2363,9 @@ if st.session_state.get("authentication_status"):
                 # 数量整合チェック
                 check_df = check_quantity_integrity(df_before=edited_df, df_after=df_agg, qty_col="数量")
                 
-                # Streamlitの通知
+                # Streamlitの通知（エラー時のみ表示）
                 if not check_df.empty and check_df.iloc[0]["結果"] == "NG":
                     st.error("⚠️ 数量の総和に差異があります。Excelの 'CHECK_数量整合性' シートを確認してください。")
-                else:
-                    st.success("✅ 数量の総和は一致しています。")
             except Exception as e:
                 # エラー時は新しいシンプルソートを使用
                 st.warning(f"ソート処理でエラーが発生しました。シンプルソートを使用します: {e}")
@@ -2391,11 +2389,9 @@ if st.session_state.get("authentication_status"):
                 # 数量整合チェック（エラー時の場合）
                 check_df = check_quantity_integrity(df_before=edited_df, df_after=df_agg, qty_col="数量")
                 
-                # Streamlitの通知
+                # Streamlitの通知（エラー時のみ表示）
                 if not check_df.empty and check_df.iloc[0]["結果"] == "NG":
                     st.error("⚠️ 数量の総和に差異があります。Excelの 'CHECK_数量整合性' シートを確認してください。")
-                else:
-                    st.success("✅ 数量の総和は一致しています。")
             output = io.BytesIO()
             jst = pytz.timezone("Asia/Tokyo")
             now_str = datetime.now(jst).strftime("%y%m%d_%H%M")
@@ -2519,7 +2515,7 @@ if st.session_state.get("authentication_status"):
             # 編集タブでExcel出力時にDB保存（Excelダウンロードボタンが押された時のみ）
             # 注意: この部分はExcelダウンロードボタンのクリック時にのみ実行される
             
-            # ダウンロードボタンと削除ボタンを横に並べる
+            # ダウンロードボタンと履歴移行ボタンを横に並べる
             col1, col2 = st.columns([3, 1])
             
             with col1:
@@ -2531,8 +2527,13 @@ if st.session_state.get("authentication_status"):
                     key="download_excel_btn"
                 )
                 
-                # ダウンロード時にDBに保存（履歴DBにデータを保存）
+                # ダウンロード完了時の通知のみ（履歴自動移行は無効化）
                 if downloaded:
+                    st.success("Excelファイルをダウンロードしました")
+            
+            with col2:
+                # 履歴に移行するボタン
+                if st.button("📝 履歴に保存", type="secondary", key="save_to_history_btn"):
                     try:
                         # ログイン情報を取得
                         user_profile = credentials_config['credentials']['usernames'].get(username, {})
@@ -2540,12 +2541,12 @@ if st.session_state.get("authentication_status"):
                         
                         save_order_lines(
                             edited_df, now_str,
-                            note="編集タブから保存（Excel同時）",
+                            note="編集タブから手動保存",
                             account_email=username,
                             account_name=name,
                             company=company
                         )
-                        st.success(f"DBに保存しました（バッチID: {now_str}）")
+                        st.success(f"履歴に保存しました（バッチID: {now_str}）")
 
                         # --- 画面側のデータを完全初期化 ---
                         st.session_state.parsed_records = []
@@ -2555,7 +2556,7 @@ if st.session_state.get("authentication_status"):
 
                         st.rerun()  # ← これが無いと同一表示が残って見える
                     except Exception as e:
-                        st.error(f"DB保存に失敗しました: {e}")
+                        st.error(f"履歴保存に失敗しました: {e}")
                 
                 # データクリアフラグが設定されている場合の処理
                 if st.session_state.get('data_clear_requested', False):
