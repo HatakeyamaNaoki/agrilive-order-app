@@ -2596,7 +2596,9 @@ if st.session_state.get("authentication_status"):
                 # 追加：タブ2の削除ボタンの直前あたりで最新状態を取得して判定
                 line_orders_now = get_line_orders_for_user(username)
                 processed_line_orders_now = [o for o in line_orders_now if o.get("processed", False)]
-                has_processed_data = bool(processed_line_orders_now or st.session_state.parsed_records)
+                text_orders_now = get_text_orders_for_user(username)
+                processed_text_orders_now = [t for t in text_orders_now if t.get("processed", False)]
+                has_processed_data = bool(processed_line_orders_now or processed_text_orders_now or st.session_state.parsed_records)
                 
                 # 常時ボタン表示（データが無ければdisabled）
                 if st.button("🗑️ 処理済みデータ削除", type="secondary", disabled=not has_processed_data, key="btn_delete_processed"):
@@ -2604,6 +2606,13 @@ if st.session_state.get("authentication_status"):
                         # LINE処理済みデータを実ファイルから削除
                         if processed_line_orders_now:
                             success, message = delete_processed_line_orders()
+                            (st.success if success else st.error)(message)
+
+                        # テキストメッセージ処理済みデータを削除
+                        text_orders = get_text_orders_for_user(username)
+                        processed_text_orders = [t for t in text_orders if t.get("processed", False)]
+                        if processed_text_orders:
+                            success, message = delete_processed_text_orders()
                             (st.success if success else st.error)(message)
 
                         # 画面・セッションも完全初期化
