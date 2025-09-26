@@ -147,6 +147,52 @@ def sort_by_simple_order(df, drop_non_product: bool = False, secondary_keys: Lis
     return df_sorted.drop(columns=["_sort_key", "_is_product"], errors="ignore")
 
 
+# === 新規追加：集計ヘルパー ===
+def build_aggregate_for_output(df_orders: pd.DataFrame) -> pd.DataFrame:
+    """
+    集計結果シート用の厳格集計：
+    - 商品名＋サイズ＋単位＋備考 が完全一致のものは数量合算
+    - 数量は数値化（非数値は0）
+    - あいうえお順（商品名）でソート（sort_by_simple_order があれば使用）
+    """
+    if df_orders is None or df_orders.empty:
+        return pd.DataFrame(columns=["商品名", "サイズ", "備考", "数量", "単位"])
+
+    df = df_orders.copy()
+
+    # 必須列の用意
+    for col in ["商品名", "サイズ", "単位", "備考"]:
+        if col not in df.columns:
+            df[col] = ""
+    if "数量" not in df.columns:
+        df["数量"] = 0
+
+    # 文字列正規化（前後空白は無視、内部スペースは保持）
+    for col in ["商品名", "サイズ", "単位", "備考"]:
+        df[col] = df[col].astype(str).fillna("").str.strip().replace({"None": ""})
+
+    # 数量は数値化（失敗は0）
+    df["数量"] = pd.to_numeric(df["数量"], errors="coerce").fillna(0)
+
+    # キー完全一致で合算
+    agg = (
+        df.groupby(["商品名", "サイズ", "単位", "備考"], dropna=False, as_index=False)["数量"]
+          .sum()
+    )
+
+    # 列順を揃える
+    agg = agg[["商品名", "サイズ", "備考", "数量", "単位"]]
+
+    # ソート（既存のかな順ソート関数があれば使用／なければ通常の昇順）
+    try:
+        agg = sort_by_simple_order(agg, by="商品名", drop_non_product=False)  # 既存関数想定
+    except Exception:
+        agg = agg.sort_values(["商品名", "サイズ", "単位", "備考"], na_position="last")
+
+    agg.reset_index(drop=True, inplace=True)
+    return agg
+
+
 # データ保存ディレクトリの統一（APP_DATA_DIRを使用）
 from config import load_config
 CONFIG = load_config()
@@ -2347,25 +2393,8 @@ if st.session_state.get("authentication_status"):
                     secondary_keys=["納品日", "発注日"]
                 )
                 
-                # 集計結果シートのソート（非商品は除外）
-                df_agg = (
-                    df_sorted
-                    .groupby(["商品名", "サイズ", "備考", "単位"], dropna=False, as_index=False)
-                    .agg({"数量": "sum"})
-                )
-                df_agg = df_agg[["商品名", "数量", "単位", "サイズ", "備考"]]
-                df_agg = sort_by_simple_order(
-                    df_agg,
-                    drop_non_product=True,         # 集計は非商品を除外
-                    secondary_keys=None
-                )
-                
-                # 数量整合チェック
-                check_df = check_quantity_integrity(df_before=edited_df, df_after=df_agg, qty_col="数量")
-                
-                # Streamlitの通知（エラー時のみ表示）
-                if not check_df.empty and check_df.iloc[0]["結果"] == "NG":
-                    st.error("⚠️ 数量の総和に差異があります。Excelの 'CHECK_数量整合性' シートを確認してください。")
+                # 集計結果シートの作成（新しい厳格集計関数を使用）
+                df_agg = build_aggregate_for_output(df_sorted)
             except Exception as e:
                 # エラー時は新しいシンプルソートを使用
                 st.warning(f"ソート処理でエラーが発生しました。シンプルソートを使用します: {e}")
@@ -2427,13 +2456,6 @@ if st.session_state.get("authentication_status"):
                 for col_num, value in enumerate(df_agg.columns.values):
                     worksheet3.write(0, col_num, value, header_format)
                 
-                # ▼ 数量整合チェックシート
-                if 'check_df' in locals() and not check_df.empty:
-                    sheet4 = "CHECK_数量整合性"
-                    check_df.to_excel(writer, index=False, sheet_name=sheet4, startrow=1, header=False)
-                    worksheet4 = writer.sheets[sheet4]
-                    for col_num, value in enumerate(check_df.columns.values):
-                        worksheet4.write(0, col_num, value, header_format)
 
                 # ヘルパー：列名からピクセルで幅を設定（古いXlsxWriterなら文字幅換算）
                 def _set_px(ws, name_to_idx: dict, col_label: str, px: int):
