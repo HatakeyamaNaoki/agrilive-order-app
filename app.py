@@ -156,7 +156,7 @@ def build_aggregate_for_output(df_orders: pd.DataFrame) -> pd.DataFrame:
     - あいうえお順（商品名）でソート（sort_by_simple_order があれば使用）
     """
     if df_orders is None or df_orders.empty:
-        return pd.DataFrame(columns=["商品名", "サイズ", "備考", "数量", "単位"])
+        return pd.DataFrame(columns=["商品名", "数量", "単位", "サイズ", "備考"])
 
     df = df_orders.copy()
 
@@ -180,8 +180,8 @@ def build_aggregate_for_output(df_orders: pd.DataFrame) -> pd.DataFrame:
           .sum()
     )
 
-    # 列順を揃える
-    agg = agg[["商品名", "サイズ", "備考", "数量", "単位"]]
+    # 列順を揃える（商品名、数量、単位、サイズ、備考の順）
+    agg = agg[["商品名", "数量", "単位", "サイズ", "備考"]]
 
     # ソート（既存のかな順ソート関数があれば使用／なければ通常の昇順）
     try:
