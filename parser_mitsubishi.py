@@ -84,8 +84,9 @@ def parse_mitsubishi(file_path: Union[str, BinaryIO, TextIO], file_name: str) ->
 
     result = []
 
-    # 商品情報の抽出（Excel上11行目 = row=10 から2行おき）
-    for row in range(10, df.shape[0], 2):
+    # 商品情報の抽出（Excel上11行目 = row=10 から各行をチェック）
+    # 2行おきではなく、各行をチェックして商品コードが存在する行をすべて処理
+    for row in range(10, df.shape[0]):
         code_cell = df.iloc[row, 5]  # F列
         if pd.isna(code_cell) or str(code_cell).strip() == "":
             continue

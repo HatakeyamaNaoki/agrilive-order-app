@@ -55,6 +55,10 @@ Thumbs.db
 *.db
 *.sqlite3
 
+# Excel files (注文書など)
+*.xlsx
+*.xls
+
 # Temporary files
 *.tmp
 *.temp
