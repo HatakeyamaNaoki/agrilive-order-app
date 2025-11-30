@@ -84,29 +84,10 @@ def parse_mitsubishi(file_path: Union[str, BinaryIO, TextIO], file_name: str) ->
 
     result = []
 
-    # 商品情報の抽出（Excel上11行目 = row=10 から各行をチェック）
-    # 各行をチェックして、商品コードまたは商品名が存在する行をすべて処理
-    # 同じ商品が連続する場合でも、すべての行を処理する
-    for row in range(10, df.shape[0]):
-        code_cell = df.iloc[row, 5]  # F列（商品コード）
-        name_cell = df.iloc[row, 7]  # H列（商品名）
-        quantity_cell = df.iloc[row, 23]  # W列（数量）
-        
-        # 商品コード、商品名、数量のいずれかが存在する場合は処理対象
-        # すべてが空の場合はスキップ
-        has_code = pd.notna(code_cell) and str(code_cell).strip() != ""
-        has_name = pd.notna(name_cell) and str(name_cell).strip() != ""
-        has_quantity = pd.notna(quantity_cell) and str(quantity_cell).strip() != ""
-        
-        # デバッグログ（最初の数行のみ）
-        if row <= 12:
-            logger.info(f"[行{row}] コード={code_cell}, 商品名={name_cell}, 数量={quantity_cell}, has_code={has_code}, has_name={has_name}")
-        
-        # 商品コードまたは商品名が存在する場合のみ処理
-        # 数量が存在する場合も処理対象に含める（商品コード・商品名が空でも数量があれば処理）
-        if not (has_code or has_name or has_quantity):
-            if row <= 12:
-                logger.info(f"[行{row}] スキップ: すべて空")
+    # 商品情報の抽出（Excel上11行目 = row=10 から2行おき）
+    for row in range(10, df.shape[0], 2):
+        code_cell = df.iloc[row, 5]  # F列
+        if pd.isna(code_cell) or str(code_cell).strip() == "":
             continue
 
         next_row = row + 1 if row + 1 < df.shape[0] else row
@@ -128,12 +109,12 @@ def parse_mitsubishi(file_path: Union[str, BinaryIO, TextIO], file_name: str) ->
             "order_date": order_date,
             "delivery_date": delivery_date,
             "partner_name": customer_name,
-            "product_code": str(code_cell) if has_code else "",  # F列（5列目）
-            "product_name": str(name_cell) if has_name else "",  # H列（7列目）
+            "product_code": str(df.iloc[row, 5]),  # F列（5列目）- 変更なし
+            "product_name": str(df.iloc[row, 7]),  # H列（7列目）- 変更なし
             "size": "",  # 追加：三菱はサイズ空
-            "quantity": str(quantity_raw) if pd.notna(quantity_raw) else "",  # W列（23列目）
-            "unit": str(df.iloc[row, 27]) if pd.notna(df.iloc[row, 27]) else "",  # AA列（27列目）
-            "unit_price": str(unit_price_raw) if pd.notna(unit_price_raw) else "",  # AC列（29列目）
+            "quantity": str(quantity_raw),  # W列（23列目）
+            "unit": str(df.iloc[row, 27]),  # AA列（27列目）
+            "unit_price": str(unit_price_raw),  # AC列（29列目）
             "amount": str(amount_calculated),  # 数量×単価の計算結果
             "remark": " ".join(
                 str(cell) for cell in [
