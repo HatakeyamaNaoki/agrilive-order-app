@@ -85,7 +85,7 @@ def init_db():
             amount REAL, 
             remark TEXT, 
             data_source TEXT,
-            row_hash TEXT UNIQUE,
+            row_hash TEXT,  -- UNIQUE制約を削除（重複行も保存するため）
             created_at TEXT NOT NULL
         );
         """)
@@ -151,7 +151,7 @@ def save_order_lines(df, batch_id: str, note: str = None,
                 company=excluded.company
         """, (batch_id, now, note, account_email, account_name, company))
         
-        # 行をINSERT（重複はrow_hashのUNIQUEで無視）
+        # 行をINSERT（重複も含めて原本どおり全行を保存）
         cols = ["order_id", "order_date", "delivery_date", "partner_name",
                 "product_code", "product_name", "size", "quantity", "unit",
                 "unit_price", "amount", "remark", "data_source"]
@@ -162,7 +162,7 @@ def save_order_lines(df, batch_id: str, note: str = None,
             h = _calc_hash(row)
             
             c.execute("""
-            INSERT OR IGNORE INTO order_lines
+            INSERT INTO order_lines
             (batch_id, order_id, order_date, delivery_date, partner_name,
              product_code, product_name, size, quantity, unit, unit_price, amount, remark, data_source,
              account_email, account_name, company,

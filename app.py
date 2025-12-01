@@ -2362,11 +2362,11 @@ if st.session_state.get("authentication_status"):
                 df = df.reindex(columns=columns)
                 df.columns = ["伝票番号", "発注日", "納品日", "取引先名", "商品コード", "商品名", "サイズ", "数量", "単位", "単価", "金額", "備考", "データ元"]
                 
-                # 重複行の除去
-                df = df.drop_duplicates(
-                    subset=["伝票番号","発注日","納品日","取引先名","商品コード","商品名","サイズ","数量","単位","単価","金額","備考","データ元"],
-                    keep="first"
-                )
+                # ★重複行は削除しない（原本どおり全行を保持）
+                # df = df.drop_duplicates(
+                #     subset=["伝票番号","発注日","納品日","取引先名","商品コード","商品名","サイズ","数量","単位","単価","金額","備考","データ元"],
+                #     keep="first"
+                # )
 
                 edited_df = st.data_editor(
                     df,
